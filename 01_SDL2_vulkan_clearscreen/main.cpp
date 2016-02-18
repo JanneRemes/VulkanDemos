@@ -4,16 +4,51 @@
 
 #include <iostream>
 #include <vector>
+#include <algorithm>
 #include <assert.h>
+
+//#define VK_PROTOTYPES
+#define VK_USE_PLATFORM_XLIB_KHR
 
 #include <vulkan/vulkan.h>
 
 int windowWidth = 800;
 int windowHeight = 600;
 
+const char * applicationName = "mySdlVulkanTest";
+const char * engineName = applicationName;
 
 
-void createVkInstance()
+/**
+ * debug callback; adapted from dbg_callback from vulkaninfo.c in the Vulkan SDK.
+ */
+static VKAPI_ATTR VkBool32 VKAPI_CALL
+debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t srcObject, size_t location,
+             int32_t msgCode, const char *pLayerPrefix, const char *pMsg, void *pUserData)
+{
+	if (msgFlags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
+		std::cout << "ERROR: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+	else if (msgFlags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+		std::cout << "WARNING: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+	else if (msgFlags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT)
+		std::cout << "INFO: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+	else if (msgFlags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)
+		std::cout << "DEBUG: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+
+	/*
+	* false indicates that layer should not bail-out of an
+	* API call that had validation failures. This may mean that the
+	* app dies inside the driver due to invalid parameter(s).
+	* That's what would happen without validation layers, so we'll
+	* keep that behavior here.
+	*/
+	return false;
+}
+
+
+
+
+VkInstance createVkInstance()
 {
 	VkInstance myInstance;
 	VkResult result;
@@ -24,22 +59,23 @@ void createVkInstance()
 	 * It's passed to the VkInstanceCreateInfo struct through a pointer.
 	 */
 	const VkApplicationInfo applicationInfo = {
-		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO, // Must be this value
-		.pNext = nullptr,                        // Must be null (reserved for extensions)
-		.pApplicationName = "mySdlVulkanTest",   // Application name (UTF8, null terminated string)
-		.applicationVersion = 1,                 // Application version
-		.pEngineName = "mySdlVulkanTest",        // Engine name (UTF8, null terminated string)
-		.engineVersion = 1,                      // Engine version
-		.apiVersion = VK_API_VERSION,            // Vulkan version the application expects to use;
-		                                         // if = 0, this field is ignored, otherwise, if the implementation
-		                                         // doesn't support the specified version, VK_ERROR_INCOMPATIBLE_DRIVER is returned.
+		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,  // Must be this value
+		.pNext = nullptr,                       // Must be null (reserved for extensions)
+		.pApplicationName = applicationName,    // Application name (UTF8, null terminated string)
+		.applicationVersion = 1,                // Application version
+		.pEngineName = engineName,              // Engine name (UTF8, null terminated string)
+		.engineVersion = 1,                     // Engine version
+		.apiVersion = VK_API_VERSION,           // Vulkan version the application expects to use;
+		                                        // if = 0, this field is ignored, otherwise, if the implementation
+		                                        // doesn't support the specified version, VK_ERROR_INCOMPATIBLE_DRIVER is returned.
 	};
+
 
 	/*
 	 * The VkInstanceCreateInfo struct contains information regarding the creation of the VkInstance.
 	 */
 	VkInstanceCreateInfo instanceCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, // Must be this value
+		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,  // Must be this value
 		.pNext = nullptr,                       // Must be null (reserved for extensions)
 		.flags = 0,                             // Must be 0 (reserved for future use)
 		.pApplicationInfo = &applicationInfo,   // Pointer to a VkApplicationInfo struct (or can be null)
@@ -48,6 +84,7 @@ void createVkInstance()
 		.enabledExtensionCount = 0,             // Number of global extensions to enable
 		.ppEnabledExtensionNames = nullptr,     // Pointer to array of #enabledExtensionCount strings containing the names of the extensions to enable
 	};
+
 
 
 	/*
@@ -77,19 +114,15 @@ void createVkInstance()
 
 		for(const auto & layer : layerPropertiesVector)
 		{
+			std::cout << "     Name        : " << layer.layerName             << std::endl;
+			std::cout << "     Spec.Version: " << layer.specVersion           << std::endl;
+			std::cout << "     Impl.Version: " << layer.implementationVersion << std::endl;
+			std::cout << "     Description : " << layer.description           << std::endl;
 			std::cout << std::endl;
-			std::cout << "  Name        : " << layer.layerName             << std::endl;
-			std::cout << "  Spec.Version: " << layer.specVersion           << std::endl;
-			std::cout << "  Impl.Version: " << layer.implementationVersion << std::endl;
-			std::cout << "  Description : " << layer.description           << std::endl;
 		}
 		std::cout << "------------------------------------------------------------------\n" << std::endl;
-
-		/*
-		 * Here we can populate a vector of layer names we want to enable,
-		 * and pass it through the ppEnabledLayerNames pointer inside VkInstanceCreateInfo.
-		 */
 	}
+
 
 
 	/*
@@ -120,95 +153,116 @@ void createVkInstance()
 		std::cout << "Found " << extPropertiesVector.size() << " extensions for layer " << (layerName==nullptr ? "(null)" : layerName) << std::endl;
 
 		for(const auto & ext : extPropertiesVector) {
+			std::cout << "     Name        : " << ext.extensionName << std::endl;
+			std::cout << "     Spec.Version: " << ext.specVersion   << std::endl;
 			std::cout << std::endl;
-			std::cout << "  Name        : " << ext.extensionName << std::endl;
-			std::cout << "  Spec.Version: " << ext.specVersion   << std::endl;
 		}
-		std::cout << "------------------------------------------------------------------\n" << std::endl;
+
+		return extPropertiesVector;
 	};
 
-	// Passing a null pointer as the name of the layer, we get the Vulkan implementation's extensions,
-	// or the extensions of the implicitly enabled layers.
-	queryAndPrintExtensions(nullptr);
+	// Passing a null pointer as the name of the layer, we get the Vulkan implementation's (global) extensions,
+	// and the extensions of the implicitly enabled layers.
+	auto globalExtensionsVector = queryAndPrintExtensions(nullptr);
 
 	for(const auto & layer : layerPropertiesVector)
 		queryAndPrintExtensions(layer.layerName);
 
-
-/*
-
+	std::cout << "------------------------------------------------------------------\n" << std::endl;
 
 
 
+	/*
+	 * Layers enable:
+	 * Here we can populate a vector of layer names we want to enable,
+	 * and pass them through the ppEnabledLayerNames pointers inside VkInstanceCreateInfo.
+	 */
+	std::vector<const char *> layersNamesToEnable;
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_threading");       // Enable all the standard validation layers that come with the VulkanSDK.
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
+	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
 
-	// Global Extensions to enable
-	static const char *known_extensions[] = {
-			VK_KHR_SURFACE_EXTENSION_NAME,
-		#ifdef VK_USE_PLATFORM_ANDROID_KHR
-			VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
-		#endif
-		#ifdef VK_USE_PLATFORM_MIR_KHR
-			VK_KHR_MIR_SURFACE_EXTENSION_NAME,
-		#endif
-		#ifdef VK_USE_PLATFORM_WAYLAND_KHR
-			VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
-		#endif
-		#ifdef VK_USE_PLATFORM_WIN32_KHR
-			VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-		#endif
-		#ifdef VK_USE_PLATFORM_XCB_KHR
-			VK_KHR_XCB_SURFACE_EXTENSION_NAME,
-		#endif
-		#ifdef VK_USE_PLATFORM_XLIB_KHR
-			VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
-		#endif
-	};
-
-	uint32_t global_extension_count = 0;
-
-	inst.global_extension_count = 0;
-	app_get_global_layer_extensions(NULL, &inst.global_extension_count,
-									&inst.global_extensions);
-
-	for (uint32_t i = 0; i < ARRAY_SIZE(known_extensions); i++) {
-		VkBool32 extension_found = 0;
-		for (uint32_t j = 0; j < inst.global_extension_count; j++) {
-			VkExtensionProperties *extension_prop = &inst.global_extensions[j];
-			if (!strcmp(known_extensions[i], extension_prop->extensionName)) {
-
-				extension_found = 1;
-				global_extension_count++;
+	// Check if all the layer names we want to enable are present
+	// in the VkLayerProperties we collected before in layerPropertiesVector.
+	for(const auto & layerName : layersNamesToEnable)
+	{
+		auto itr = std::find_if(layerPropertiesVector.begin(), layerPropertiesVector.end(),
+			[&](const VkLayerProperties & extProp){
+				return strcmp(layerName, extProp.layerName) == 0;
 			}
-		}
-		if (!extension_found) {
-			printf("Cannot find extension: %s\n", known_extensions[i]);
-			ERR_EXIT(VK_ERROR_EXTENSION_NOT_PRESENT);
+		);
+
+		if(itr == layerPropertiesVector.end()) {
+			std::cout << "ERROR: Layer " << layerName << " was not found." << std::endl;
+			exit(1);
 		}
 	}
 
-	inst_info.enabledExtensionCount = global_extension_count;
-	inst_info.ppEnabledExtensionNames = (const char *const *)known_extensions;
+	// We pass the pointer and size of the extension names vector to the VkInstanceCreateInfo struct
+	instanceCreateInfo.enabledLayerCount = (uint32_t)layersNamesToEnable.size();
+	instanceCreateInfo.ppEnabledLayerNames = layersNamesToEnable.data();
 
 
 
+	/*
+	 * Extensions enable:
+	 * Here we can populate a vector of extension names we want to enable,
+	 * and pass them through the ppEnabledExtensionNames pointers inside VkInstanceCreateInfo.
+	 */
+	std::vector<const char *> extensionsNamesToEnable;
+	extensionsNamesToEnable.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+	extensionsNamesToEnable.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);	// TODO: add support for other windowing systems
 
+	// Check if all the extension names we want to enable are present
+	// in the VkExtensionProperties we collected before in globalExtensionsVector.
+	for(const auto & extName : extensionsNamesToEnable)
+	{
+		auto itr = std::find_if(globalExtensionsVector.begin(), globalExtensionsVector.end(),
+			[&](const VkExtensionProperties & extProp){
+				return strcmp(extName, extProp.extensionName) == 0;
+			}
+		);
+
+		if(itr == globalExtensionsVector.end()) {
+			std::cout << "ERROR: extension " << extName << " was not found in the global extensions vector." << std::endl;
+			exit(1);
+		}
+	}
+
+	// We pass the pointer and size of the extension names vector to the VkInstanceCreateInfo struct
+	instanceCreateInfo.enabledExtensionCount = (uint32_t)extensionsNamesToEnable.size();
+	instanceCreateInfo.ppEnabledExtensionNames = extensionsNamesToEnable.data();
+
+
+
+	/*
+	 * Debug Extension:
+	 * Can't find documentation for this; this code is taken from vulkaninfo.c in the Vulkan SDK.
+	 */
 	VkDebugReportCallbackCreateInfoEXT dbg_info;
 	memset(&dbg_info, 0, sizeof(dbg_info));
 	dbg_info.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT;
 	dbg_info.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT |
 					 VK_DEBUG_REPORT_WARNING_BIT_EXT |
 					 VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
-	dbg_info.pfnCallback = dbg_callback;
-	inst_info.pNext = &dbg_info;
+	dbg_info.pfnCallback = debugCallback;
+	instanceCreateInfo.pNext = &dbg_info;
 
 
-*/
 
-
-	// Here the magic happens
+	/*
+	 * Here the magic happens: the VkInstance gets created from
+	 * the structs we filled before.
+	 */
 	result = vkCreateInstance(&instanceCreateInfo, nullptr, &myInstance);
 
-	// Error checking
 	if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
 		std::cout << "ERROR: Cannot create Vulkan instance, VK_ERROR_INCOMPATIBLE_DRIVER." << std::endl;
 		exit(1);
@@ -217,13 +271,15 @@ void createVkInstance()
 		exit(1);
 	}
 
-
-
-
-	// FIXME Keep things clean for now
-	vkDestroyInstance(myInstance, nullptr);
-
+	// YAY! We have our VkInstance!
+	return myInstance;
 }
+
+
+
+
+
+
 
 
 
@@ -295,19 +351,17 @@ int main(int argc, char* argv[])
 	}
 
 
+	/*
+	 * Do all the Vulkan goodies here.
+	 */
+
+	VkInstance myInstance = createVkInstance();
 
 
-
-	createVkInstance();
-
-
-
+	vkDestroyInstance(myInstance, nullptr);
 
 	SDL_DestroyWindow(window);
 	SDL_Quit();
 
 	return 0;
-
-
 }
-
