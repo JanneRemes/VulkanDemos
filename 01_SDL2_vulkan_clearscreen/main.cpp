@@ -50,7 +50,6 @@ debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t src
 
 VkInstance createVkInstance()
 {
-	VkInstance myInstance;
 	VkResult result;
 
 	/*
@@ -261,6 +260,7 @@ VkInstance createVkInstance()
 	 * Here the magic happens: the VkInstance gets created from
 	 * the structs we filled before.
 	 */
+	VkInstance myInstance;
 	result = vkCreateInstance(&instanceCreateInfo, nullptr, &myInstance);
 
 	if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
@@ -271,7 +271,8 @@ VkInstance createVkInstance()
 		exit(1);
 	}
 
-	// YAY! We have our VkInstance!
+
+	std::cout << "VkInstance created succesfully!" << std::endl;
 	return myInstance;
 }
 
@@ -280,11 +281,239 @@ VkInstance createVkInstance()
 
 
 
+struct DeviceAndQueueStruct{
+	VkDevice device;
+	VkQueue queue;
+	uint32_t queueFamilyIndex;
+};
+
+DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
+{
+	VkResult result;
+
+	/*
+	 * Here we query the Vulkan Implementation for the physical devices
+	 * available in the system. We then log their information to the console.
+	 */
+	// Query the number of physical devices awailable to the system
+	uint32_t physicalDevicesCount = 0;
+	result = vkEnumeratePhysicalDevices(theInstance, &physicalDevicesCount, nullptr);
+    assert(result == VK_SUCCESS);
+
+	if(physicalDevicesCount <= 0) {
+		std::cout << "ERROR: no physical device found!" << std::endl;
+		exit(1);
+	}
+
+	// Now query the pysical devices' actual data.
+	std::vector<VkPhysicalDevice> physicalDevicesVector(physicalDevicesCount);
+	result = vkEnumeratePhysicalDevices(theInstance, &physicalDevicesCount, physicalDevicesVector.data());
+    assert(result == VK_SUCCESS);
+
+	// For each physical device we query its properties and pretty-print them to the console.
+	int deviceIndex = 0;
+	for(const auto & phyDev : physicalDevicesVector)
+	{
+		VkPhysicalDeviceProperties phyDevProperties;
+		vkGetPhysicalDeviceProperties(phyDev, &phyDevProperties);
+
+		std::cout << "\nFound device: " << phyDevProperties.deviceName << " (index: " << (deviceIndex++) << ")" << std::endl;
+		std::cout << "    apiVersion: " << phyDevProperties.apiVersion << std::endl;
+		std::cout << " driverVersion: " << phyDevProperties.driverVersion << std::endl;
+		std::cout << "      vendorID: " << phyDevProperties.vendorID << std::endl;
+		std::cout << "      deviceID: " << phyDevProperties.deviceID << std::endl;
+		std::cout << "    deviceType: (" << phyDevProperties.deviceType << ") ";
+		switch(phyDevProperties.deviceType) {
+			case VK_PHYSICAL_DEVICE_TYPE_OTHER:          std::cout << "OTHER";          break;
+			case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: std::cout << "INTEGRATED_GPU"; break;
+			case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   std::cout << "DISCRETE_GPU";   break;
+			case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    std::cout << "VIRTUAL_GPU";    break;
+			case VK_PHYSICAL_DEVICE_TYPE_CPU:            std::cout << "CPU";            break;
+			default:                                     std::cout << "UNKNOWN!!!";     break;
+		}
+		std::cout << std::endl;
+
+		// VkPhysicalDeviceLimits and VkPhysicalDeviceSparseProperties not logged for simplicity.
+	}
+
+	// For simplicity, just pick the first physical device listed and proceed
+	const int deviceToUseIndex = 0;  // Change this value if you are on a multi-gpu system and you want to use a different device.
+
+	VkPhysicalDevice & phyDevice = physicalDevicesVector[deviceToUseIndex];
+
+
+	/*
+	 * Queue Families:
+	 * we query the selected device for the number and type of Queue Families it supports,
+	 * we log to the console the properties, and we make sure the device has at least one graphics queue.
+	 */
+	uint32_t queueFamilyPropertyCount = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &queueFamilyPropertyCount, nullptr);
+
+	if(queueFamilyPropertyCount <= 0) {
+		std::cout << "ERROR: chosen physical device has no queue families!" << std::endl;
+		exit(1);
+	}
+
+	std::vector<VkQueueFamilyProperties> queueFamilyPropertiesVector(queueFamilyPropertyCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &queueFamilyPropertyCount, queueFamilyPropertiesVector.data());
+
+	int queuePropCounter = 0;
+	int indexOfGraphicsQueueFamily = -1;
+	for(const auto & queueFamProp : queueFamilyPropertiesVector)
+	{
+		std::cout << "Properties for queue family " << queuePropCounter << std::endl;
+		std::cout << "                    queueFlags:";
+
+		if(queueFamProp.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+			std::cout << " GRAPHICS";
+			if(indexOfGraphicsQueueFamily < 0)
+				indexOfGraphicsQueueFamily = queuePropCounter;
+		}
+		if(queueFamProp.queueFlags & VK_QUEUE_COMPUTE_BIT)
+			std::cout << " COMPUTE";
+		if(queueFamProp.queueFlags & VK_QUEUE_TRANSFER_BIT)
+			std::cout << " TRANSFER";
+		if(queueFamProp.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT)
+			std::cout << " SPARSE_BINDING";
+
+		std::cout << '\n';
+		std::cout << "                    queueCount: " << queueFamProp.queueCount << std::endl;
+		std::cout << "            timestampValidBits: " << queueFamProp.timestampValidBits << std::endl;
+		std::cout << "   minImageTransferGranularity: " << queueFamProp.minImageTransferGranularity.width
+		                                        << ", " << queueFamProp.minImageTransferGranularity.height
+		                                        << ", " << queueFamProp.minImageTransferGranularity.depth
+		                                        << std::endl;
+
+		queuePropCounter++;
+	}
+
+	if(indexOfGraphicsQueueFamily < 0) {
+		std::cout << "ERROR: chosen physical device has no Graphics queues!" << std::endl;
+		exit(1);
+	}
 
 
 
+	/*
+	 * Device Layers and Extensions:
+	 * like we did for VkInstance, we need to query the implementation for the layers
+	 * and the extensions a certain physical device supports, so that we can
+	 * create the VkDevice.
+	 * Since it's basically the same code as before (using
+	 * vkEnumerateDeviceLayerProperties/vkEnumerateDeviceExtensionProperties
+	 * instead of vkEnumerateInstanceLayerProperties/vkEnumerateInstanceExtensionProperties),
+	 * here we just check if the device supports the VK_KHR_SWAPCHAIN_EXTENSION_NAME extension,
+	 * and we assume it supports all the validation layers we ask to use.
+	 */
+
+	uint32_t deviceExtensionCount = 0;
+	result = vkEnumerateDeviceExtensionProperties(phyDevice, nullptr, &deviceExtensionCount, nullptr);
+	assert(result == VK_SUCCESS && deviceExtensionCount > 0);
+
+	std::vector<VkExtensionProperties> deviceExtensionVector(deviceExtensionCount);
+	result = vkEnumerateDeviceExtensionProperties(phyDevice, nullptr, &deviceExtensionCount, deviceExtensionVector.data());
+	assert(result == VK_SUCCESS);
+
+	bool hasSwapchainExtension = false;
+	for(const auto & extProp : deviceExtensionVector)
+	{
+		if(strcmp(extProp.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
+			hasSwapchainExtension = true;
+			break;
+		}
+	}
+
+	if(!hasSwapchainExtension) {
+		std::cout << "ERROR: chosen physical device does not support VK_KHR_SWAPCHAIN_EXTENSION_NAME!" << std::endl;
+		exit(1);
+	}
 
 
+
+	/*
+	 * Queue create info:
+	 * When we create the VkDevice, we also create many queues associated to it.
+	 * For this reason, before we create our VkDevice, we need to specify how many queues
+	 * (and with which properties) we want to have in the VkDevice.
+	 *
+	 * For this demo, we're going to create a single graphics queue for the device.
+	 * This queue will be of the family we found before, which we already checked supports graphics.
+	 */
+	std::vector<VkDeviceQueueCreateInfo> deviceQueueCreateInfoVector;
+
+	VkDeviceQueueCreateInfo qciToFill;
+	qciToFill.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	qciToFill.pNext = nullptr;
+	qciToFill.flags = 0;
+
+	float queuePriority = 1.0f;
+	qciToFill.queueFamilyIndex = (uint32_t)indexOfGraphicsQueueFamily; // The queue family with the graphics capability we found before.
+	qciToFill.queueCount = 1;                                          // We only want one queue created for this family in this demo.
+	qciToFill.pQueuePriorities = &queuePriority;                       // An array of queueCount elements specifying priorities of work
+	                                                                   //  that will be submitted to each created queue. Refer to the spec for more info.
+	deviceQueueCreateInfoVector.push_back(qciToFill);
+
+
+	/*
+	 * Physical device features:
+	 * At device creation time, you can choose from a variety of fine-grained features
+	 * you want to enable/disable for that particular device.
+	 *
+	 * For this demo we're going to use the default settings;
+	 * refer to Chapter 31 (Features, Limits, and Formats) to learn more.
+	 */
+
+	VkPhysicalDeviceFeatures physicalDeviceFeatures;
+	vkGetPhysicalDeviceFeatures(phyDevice, &physicalDeviceFeatures);
+
+
+	/*
+	 * Device creation:
+	 * we can finally create a VkDevice, from the VkPhysicalDevice we selected before.
+	 * To do that, we need to populate a VkDeviceCreationInfo struct with the relevant informations.
+	 */
+	VkDevice myDevice;
+
+	std::vector<const char *> layerNamesToEnable = { "VK_LAYER_LUNARG_standard_validation" };
+	std::vector<const char *> extensionNamesToEnable = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+
+	VkDeviceCreateInfo deviceCreateInfo = {
+	    .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+	    .pNext = nullptr,
+	    .flags = 0,
+	    .queueCreateInfoCount = (uint32_t)deviceQueueCreateInfoVector.size(),
+	    .pQueueCreateInfos = deviceQueueCreateInfoVector.data(),
+	    .enabledLayerCount = (uint32_t)layerNamesToEnable.size(),
+	    .ppEnabledLayerNames = layerNamesToEnable.data(),
+	    .enabledExtensionCount = (uint32_t)extensionNamesToEnable.size(),
+	    .ppEnabledExtensionNames = extensionNamesToEnable.data(),
+	    .pEnabledFeatures = &physicalDeviceFeatures
+	};
+
+	result = vkCreateDevice(phyDevice, &deviceCreateInfo, nullptr, &myDevice);
+	assert(result == VK_SUCCESS);
+
+
+	/*
+	 * Since the queues are created together with the VkDevice,
+	 * using the vkGetDeviceQueue we can get the created instances
+	 * of the requested queues from each device.
+	 *
+	 * In this demo we only created a single queue.
+	 */
+	VkQueue myQueue;
+
+	vkGetDeviceQueue(myDevice,                              // The device from which we want to get the queue instance
+	                 (uint32_t)indexOfGraphicsQueueFamily,  // The index of the queue family were we created our queue
+	                 0,                                     // The index of the created queue in the family (0 means the first one, since we created only one queue)
+	                 &myQueue                               // The queue goes here.
+	);
+
+	// We're done here!
+	std::cout << "VkDevice and VkQueue created succesfully!" << std::endl;
+	return {myDevice, myQueue, (uint32_t)indexOfGraphicsQueueFamily};
+}
 
 
 
@@ -354,10 +583,15 @@ int main(int argc, char* argv[])
 	/*
 	 * Do all the Vulkan goodies here.
 	 */
-
 	VkInstance myInstance = createVkInstance();
 
+	auto deviceAndQueue = createVkDeviceAndVkQueue(myInstance);
+	VkDevice myDevice = deviceAndQueue.device;
+	VkQueue myQueue = deviceAndQueue.queue;
 
+	// There's no function for destroying a queue; all queues of a particular
+	// device are destroyed when the device is destroyed.
+	vkDestroyDevice(myDevice, nullptr);
 	vkDestroyInstance(myInstance, nullptr);
 
 	SDL_DestroyWindow(window);
