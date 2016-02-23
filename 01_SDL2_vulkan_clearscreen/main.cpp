@@ -566,7 +566,13 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
  * Parameter "theOldSwapChain" is used if we are recreating a swapchain (for example if we resized the window);
  * if we are creating the swapchain for the first time, this parameter must be VK_NULL_HANDLE.
  */
-bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice, const VkDevice theDevice, const VkSurfaceKHR theSurface, VkSwapchainKHR theOldSwapChain, VkSwapchainKHR & outSwapchain)
+bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
+                       const VkDevice theDevice,
+                       const VkSurfaceKHR theSurface,
+                       VkSwapchainKHR theOldSwapChain,
+                       VkSwapchainKHR & outSwapchain,
+                       VkFormat & outSurfaceFormat
+                       )
 {
 	VkResult result;
 
@@ -691,6 +697,7 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice, const VkDevice 
 
 	std::cout << "+++ VkSwapchainKHR created succesfully!\n";
 	outSwapchain = mySwapchain;
+	outSurfaceFormat = surfaceFormat;
 
 	// Destroy the old swapchain, if there was one.
 	if(theOldSwapChain != VK_NULL_HANDLE) {
@@ -703,6 +710,116 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice, const VkDevice 
 }
 
 
+
+/**
+ * Get the VkImages out of the specified swapchain, and create for each of them an
+ * associated VkImageView.
+ */
+bool getSwapchainImagesAndViews(const VkDevice theDevice,
+                                const VkSwapchainKHR theSwapchain,
+                                const VkFormat & theSurfaceFormat,
+                                std::vector<VkImage> & outSwapchainImagesVector,
+                                std::vector<VkImageView> & outSwapchainImageViewsVector
+                                )
+{
+	VkResult result;
+
+	/*
+	 * Get swapchain images
+	 */
+	uint32_t swapchainImageCount;
+	result = vkGetSwapchainImagesKHR(theDevice, theSwapchain, &swapchainImageCount, nullptr);
+	assert(result == VK_SUCCESS);
+
+	std::vector<VkImage> swapchainImagesVector(swapchainImageCount);
+	result = vkGetSwapchainImagesKHR(theDevice, theSwapchain, &swapchainImageCount, swapchainImagesVector.data());
+	assert(result == VK_SUCCESS);
+
+	std::vector<VkImageView> swapchainImageViewsVector(swapchainImageCount);
+
+	/*
+	 * Create the view for each image
+	 */
+	for(auto i = 0u; i < swapchainImageCount; i++)
+	{
+		// TODO document every field
+		VkImageViewCreateInfo imageViewCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.format = theSurfaceFormat,
+			.components = {
+				.r = VK_COMPONENT_SWIZZLE_R,
+				.g = VK_COMPONENT_SWIZZLE_G,
+				.b = VK_COMPONENT_SWIZZLE_B,
+				.a = VK_COMPONENT_SWIZZLE_A,
+			},
+			.subresourceRange = {
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1
+		    },
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		    .image = swapchainImagesVector[i],
+		};
+
+		result = vkCreateImageView(theDevice, &imageViewCreateInfo, nullptr, &swapchainImageViewsVector[i]);
+		assert(result == VK_SUCCESS);
+	}
+
+	std::cout << "+++ Created " << swapchainImageCount << " swapchain images and views."<< std::endl;
+	outSwapchainImagesVector = std::move(swapchainImagesVector);
+	outSwapchainImageViewsVector = std::move(swapchainImageViewsVector);
+	return true;
+}
+
+/*static void demo_set_image_layout(struct demo *demo, VkImage image,
+								  VkImageAspectFlags aspectMask,
+                                  VkImageLayout old_image_layout,
+                                  VkImageLayout new_image_layout) {
+
+	// comandi per far cambiare lo stato all'image
+    VkImageMemoryBarrier image_memory_barrier = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = NULL,
+        .srcAccessMask = 0,
+        .dstAccessMask = 0,
+        .oldLayout = old_image_layout,
+        .newLayout = new_image_layout,
+        .image = image,
+        .subresourceRange = {aspectMask, 0, 1, 0, 1}};
+
+    if (new_image_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        // Make sure anything that was copying from this image has completed
+        image_memory_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    }
+
+    if (new_image_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+        image_memory_barrier.dstAccessMask =
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    }
+
+    if (new_image_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+        image_memory_barrier.dstAccessMask =
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    }
+
+    if (new_image_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        // Make sure any Copy or CPU writes to image are flushed
+        image_memory_barrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+    }
+
+    VkImageMemoryBarrier *pmemory_barrier = &image_memory_barrier;
+
+    VkPipelineStageFlags src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    VkPipelineStageFlags dest_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+    vkCmdPipelineBarrier(demo->setup_cmd, src_stages, dest_stages, 0, 0, NULL,
+                         0, NULL, 1, pmemory_barrier);
+}*/
 
 
 /**
@@ -813,8 +930,19 @@ int main(int argc, char* argv[])
 
 	// Create a VkSwapchainKHR
 	VkSwapchainKHR mySwapchain;
-	createResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, VK_NULL_HANDLE, mySwapchain);
+	VkFormat mySurfaceFormat;
+	createResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
 	assert(createResult);
+
+	// Create the swapchain images and related views.
+	std::vector<VkImage> mySwapchainImagesVector;
+	std::vector<VkImageView> mySwapchainImageViewsVector;
+	createResult = getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
+	assert(createResult);
+
+	// TODO remember to transition the images from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+
+
 
 
 	// Initialization completed!
@@ -825,7 +953,10 @@ int main(int argc, char* argv[])
 	 * Deinitialization
 	 */
 
+	// NOTE! DON'T destroy the swapchain images and views, because they are already destroyed
+	// during the destruction of the swapchain.
 	vkDestroySwapchainKHR(myDevice, mySwapchain, nullptr);
+
 	// There's no function for destroying a queue; all queues of a particular
 	// device are destroyed when the device is destroyed.
 	vkDestroyDevice(myDevice, nullptr);
