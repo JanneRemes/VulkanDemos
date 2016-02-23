@@ -998,6 +998,126 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 
 
 /**
+ * Render a single frame for this demo (i.e. we clear the screen).
+ * Returns true on success and false on failure.
+ */
+bool renderSingleFrame(const VkDevice theDevice,
+                       const VkQueue theQueue,
+                       const VkSwapchainKHR theSwapchain,
+                       const VkCommandBuffer thePresentCmdBuffer,
+                       const std::vector<VkImage> & theSwapchainImagesVector,
+                       const VkFence thePresentFence)
+{
+	VkResult result;
+	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
+
+	VkSemaphoreCreateInfo semaphoreCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+	};
+
+	// We create a semaphore that will be signalled when a swapchain image is ready to use,
+	// and that will be waited upon by the queue before starting all the rendering/present commands.
+	result = vkCreateSemaphore(theDevice, &semaphoreCreateInfo, nullptr, &imageAcquiredSemaphore);
+	assert(result == VK_SUCCESS);
+
+	// We create another semaphore that will be signalled when the queue has terminated the rendering commands,
+	// and that will be waited upon by the actual present operation.
+	result = vkCreateSemaphore(theDevice, &semaphoreCreateInfo, nullptr, &renderingCompletedSemaphore);
+	assert(result == VK_SUCCESS);
+
+	/*
+	 * We wait on the fence so that we don't render frames too fast.
+	 * FIXME it doesn't seem to work (on linux/nvidia 355 at least).
+	 */
+	vkWaitForFences(theDevice, 1, &thePresentFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(theDevice, 1, &thePresentFence);
+
+	/*
+	 * We acquire the index of the next available swapchain image.
+	 */
+	uint32_t imageIndex = UINT32_MAX;
+	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, thePresentFence, &imageIndex);
+
+	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
+		// The swapchain is out of date (e.g. the window was resized) and must be recreated.
+		// In this demo we just "gracefully crash".
+		std::cout << "--- ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
+		// TODO tear down and recreate the swapchain and all its images from scratch.
+		return false;
+	} else if(result == VK_SUBOPTIMAL_KHR) {
+		// The swapchain is not as optimal as it could be, but the platform's
+		// presentation engine will still present the image correctly.
+		std::cout << "~~~ Swapchain is suboptimal." << std::endl;
+	} else {
+		assert(result == VK_SUCCESS);
+	}
+
+	/*
+	 * We fill the present command buffer with... the present commands.
+	 */
+	bool boolResult = fillPresentCommandBuffer(thePresentCmdBuffer, theSwapchainImagesVector[imageIndex], 1.0f, 0.2f, 0.2f);
+	assert(boolResult);
+
+	/*
+	 * We submit the present command buffer to the queue (this is the fun part!)
+	 *
+	 * In the VkSubmitInfo we specify imageAcquiredSemaphore as a wait semaphore;
+	 * this way, the submitted command buffers won't start executing before the
+	 * swapchain image is ready.
+	 */
+	VkPipelineStageFlags pipelineStageFlags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	VkSubmitInfo submitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.pNext = nullptr,
+		.waitSemaphoreCount = 1,
+		.pWaitSemaphores = &imageAcquiredSemaphore,
+		.pWaitDstStageMask = &pipelineStageFlags,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &thePresentCmdBuffer,
+		.signalSemaphoreCount = 1,
+		.pSignalSemaphores = &renderingCompletedSemaphore
+	};
+
+	result = vkQueueSubmit(theQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	assert(result == VK_SUCCESS);
+
+	VkPresentInfoKHR presentInfo = {
+		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+		.pNext = nullptr,
+	    .waitSemaphoreCount = 1,
+	    .pWaitSemaphores = &renderingCompletedSemaphore,
+		.swapchainCount = 1,
+		.pSwapchains = &theSwapchain,
+		.pImageIndices = &imageIndex,
+	    .pResults = nullptr,
+	};
+
+	result = vkQueuePresentKHR(theQueue, &presentInfo);
+
+	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
+		std::cout << "--- ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
+		return false;
+	} else if(result != VK_SUBOPTIMAL_KHR) {
+		assert(result == VK_SUCCESS);
+	}
+
+	// We wait until all the operations in the queue have terminated.
+	// In a "real" application, you'll just start rendering another frame,
+	// or run some other CPU code.
+	result = vkQueueWaitIdle(theQueue);
+	assert(result == VK_SUCCESS);
+
+	vkDestroySemaphore(theDevice, imageAcquiredSemaphore, nullptr);
+	vkDestroySemaphore(theDevice, renderingCompletedSemaphore, nullptr);
+	return true;
+}
+
+
+
+
+/**
  * The good ol' main function.
  */
 int main(int argc, char* argv[])
@@ -1016,7 +1136,7 @@ int main(int argc, char* argv[])
 		SDL_WINDOWPOS_UNDEFINED,
 		windowWidth,
 		windowHeight,
-		SDL_WINDOW_SHOWN
+		SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
 	);
 
 	SDL_VERSION(&info.version);   // initialize info structure with SDL version info
@@ -1062,6 +1182,7 @@ int main(int argc, char* argv[])
 	 * Do all the Vulkan goodies here.
 	 */
 	bool boolResult;
+	VkResult result;
 
 	// Vector of the layer names we want to enable on the Instance
 	std::vector<const char *> layersNamesToEnable;
@@ -1111,6 +1232,8 @@ int main(int argc, char* argv[])
 	assert(boolResult);
 
 	// Create the swapchain images and related views.
+	// (the views are not actually used in this demo, but since they'll be needed in the future
+	// to create the framebuffers, we'll create them anyway to show how to do it).
 	std::vector<VkImage> mySwapchainImagesVector;
 	std::vector<VkImageView> mySwapchainImageViewsVector;
 	boolResult = getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
@@ -1132,31 +1255,105 @@ int main(int argc, char* argv[])
 	boolResult = allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
 	assert(boolResult);
 
+	// We create a Fence object: this object will be used to synchronize
+	// the CPU thread with the GPU presentation rate, so that
+	// we don't do useless work on the cpu if the presentation rate
+	// is slower that the rendering rate.
+	// Note: in a "real" application, you would have multiple Fences
+	// (for example 2 or 3), so that the CPU doesn't wait on every frame
+	// but there's a bit of buffering going on.
+	VkFence myPresentFence;
+	VkFenceCreateInfo fenceCreateInfo = {
+	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+	    .pNext = nullptr,
+	    .flags = 0
+	};
+	result = vkCreateFence(myDevice, &fenceCreateInfo, nullptr, &myPresentFence);
+	assert(result == VK_SUCCESS);
+
+	/*
+	 * We completed the creation and allocation of all the resources we need!
+	 * Now it's time to build and submit the first command buffer that will contain
+	 * all the initialization commands, such as transitioning the images from
+	 * VK_IMAGE_LAYOUT_UNDEFINED to something sensible.
+	 */
 
 	// We fill the initialization command buffer with... the initialization commands.
-	// (In this demo, we just need to transition the swapchain images
-	// from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
 	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector);
 	assert(boolResult);
 
-	// We fill the present command buffer with... the present commands.
-	boolResult = fillPresentCommandBuffer(myCmdBufferPresent, /*swapchain image*/, 1.0f, 0.2f, 0.2f);
-	assert(boolResult);
+	// We now submit the command buffer to the queue we created before, and we wait
+	// for its completition.
+	VkSubmitInfo submitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.pNext = nullptr,
+		.waitSemaphoreCount = 0,
+		.pWaitSemaphores = nullptr,
+		.pWaitDstStageMask = nullptr,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &myCmdBufferInitialization,
+		.signalSemaphoreCount = 0,
+		.pSignalSemaphores = nullptr
+	};
 
-	// Initialization completed!
-	std::this_thread::sleep_for(std::chrono::seconds(1));
+	result = vkQueueSubmit(myQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	assert(result == VK_SUCCESS);
+
+	// Wait for the queue to complete its work.
+	// Note: in a "real world" application you wouldn't use this function, but you would
+	// use a semaphore (a pointer to which goes in the above VkSubmitInfo struct)
+	// that will get signalled once the queue completes all the previous commands.
+	result = vkQueueWaitIdle(myQueue);
+	assert(result == VK_SUCCESS);
 
 
+	/*
+	 * Now that initialization is complete, we can start our program's event loop!
+	 *
+	 * We'll process the SDL's events, and then send the drawing/present commands.
+	 * (in this demo we just clear the screen and present)
+	 */
+
+	SDL_Event sdlEvent;
+	bool quit = false;
+
+	while(!quit)
+	{
+		while(SDL_PollEvent(&sdlEvent))
+		{
+			if (sdlEvent.type == SDL_QUIT) {
+				quit = true;
+			}
+			/*if (sdlEvent.type == SDL_KEYDOWN){
+				quit = true;
+			}
+			if (sdlEvent.type == SDL_MOUSEBUTTONDOWN){
+				quit = true;
+			}*/
+		}
+
+		if(!quit)
+			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence);
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(14));	// FIXME hack to not spin at 100% cpu.
+	}
+
+	result = vkQueueWaitIdle(myQueue);
+	assert(result == VK_SUCCESS);
 
 	/*
 	 * Deinitialization
 	 */
+	vkDestroyFence(myDevice, myPresentFence, nullptr);
 
 	// You don't need to call vkFreeCommandBuffers for all command buffers; all command buffers
 	// allocated from a command pool are released when the command pool is destroyed.
 	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
 
-	// NOTE! DON'T destroy the swapchain images and views, because they are already destroyed
+	for(auto imgView : mySwapchainImageViewsVector)
+		vkDestroyImageView(myDevice, imgView, nullptr);
+
+	// NOTE! DON'T destroy the swapchain images, because they are already destroyed
 	// during the destruction of the swapchain.
 	vkDestroySwapchainKHR(myDevice, mySwapchain, nullptr);
 
