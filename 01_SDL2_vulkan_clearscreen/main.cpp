@@ -294,8 +294,13 @@ bool createVkSurfaceXCB(const VkInstance & theInstance, xcb_connection_t * const
 
 
 
-
-bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR & theSurface, VkDevice & outDevice, VkQueue & outQueue, uint32_t & outQueueFamilyIndex)
+/**
+ * Query the instance for all the physical devices, and return one of them.
+ * (in this demo, for simplicity, we take the first phydev we find;
+ * ideally, we would query the capabilities of each phydev and choose the
+ * one best suited for our needs).
+ */
+bool chooseVkPhysicalDevice(const VkInstance & theInstance, VkPhysicalDevice & outPhysicalDevice)
 {
 	VkResult result;
 
@@ -325,7 +330,7 @@ bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR
 		VkPhysicalDeviceProperties phyDevProperties;
 		vkGetPhysicalDeviceProperties(phyDev, &phyDevProperties);
 
-		std::cout << "Found device: " << phyDevProperties.deviceName << " (index: " << (deviceIndex++) << ")" << std::endl;
+		std::cout << "Found physical device: " << phyDevProperties.deviceName << " (index: " << (deviceIndex++) << ")" << std::endl;
 		std::cout << "    apiVersion: " << phyDevProperties.apiVersion << std::endl;
 		std::cout << " driverVersion: " << phyDevProperties.driverVersion << std::endl;
 		std::cout << "      vendorID: " << phyDevProperties.vendorID << std::endl;
@@ -347,8 +352,21 @@ bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR
 	// For simplicity, just pick the first physical device listed and proceed
 	const int deviceToUseIndex = 0;  // Change this value if you are on a multi-gpu system and you want to use a different device.
 
-	VkPhysicalDevice & phyDevice = physicalDevicesVector[deviceToUseIndex];
+	std::cout << "\n+++ Index of physical device choosen: " << deviceToUseIndex << '\n' << std::endl;
 
+	outPhysicalDevice = physicalDevicesVector[deviceToUseIndex];
+	return true;
+}
+
+
+
+
+/**
+ * Creates a VkDevice and its associated VkQueue.
+ */
+bool createVkDeviceAndVkQueue(const VkPhysicalDevice & thePhysicalDevice, const VkSurfaceKHR & theSurface, VkDevice & outDevice, VkQueue & outQueue, uint32_t & outQueueFamilyIndex)
+{
+	VkResult result;
 
 	/*
 	 * Device Layers and Extensions:
@@ -360,16 +378,16 @@ bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR
 	 * here we just check if the device supports the VK_KHR_SWAPCHAIN_EXTENSION_NAME extension,
 	 * and we assume it supports all the validation layers we ask to use.
 	 *
-	 * Ideally, you would be doing this for each physical device (like in the previous For cycle),
+	 * Ideally, you would be doing this for each physical device
 	 * as part of the procedure for choosing the physical device, but for simplicity
 	 * we'll do it only once for the selected "phyDevice".
 	 */
 	uint32_t deviceExtensionCount = 0;
-	result = vkEnumerateDeviceExtensionProperties(phyDevice, nullptr, &deviceExtensionCount, nullptr);
+	result = vkEnumerateDeviceExtensionProperties(thePhysicalDevice, nullptr, &deviceExtensionCount, nullptr);
 	assert(result == VK_SUCCESS && deviceExtensionCount > 0);
 
 	std::vector<VkExtensionProperties> deviceExtensionVector(deviceExtensionCount);
-	result = vkEnumerateDeviceExtensionProperties(phyDevice, nullptr, &deviceExtensionCount, deviceExtensionVector.data());
+	result = vkEnumerateDeviceExtensionProperties(thePhysicalDevice, nullptr, &deviceExtensionCount, deviceExtensionVector.data());
 	assert(result == VK_SUCCESS);
 
 	bool hasSwapchainExtension = false;
@@ -396,7 +414,7 @@ bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR
 	 * (This demo supports, for now, only one queue that must support both graphics and present)
 	 */
 	uint32_t queueFamilyPropertyCount = 0;
-	vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &queueFamilyPropertyCount, nullptr);
+	vkGetPhysicalDeviceQueueFamilyProperties(thePhysicalDevice, &queueFamilyPropertyCount, nullptr);
 
 	if(queueFamilyPropertyCount <= 0) {
 		std::cout << "--- ERROR: chosen physical device has no queue families!" << std::endl;
@@ -404,7 +422,7 @@ bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR
 	}
 
 	std::vector<VkQueueFamilyProperties> queueFamilyPropertiesVector(queueFamilyPropertyCount);
-	vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &queueFamilyPropertyCount, queueFamilyPropertiesVector.data());
+	vkGetPhysicalDeviceQueueFamilyProperties(thePhysicalDevice, &queueFamilyPropertyCount, queueFamilyPropertiesVector.data());
 
 	int queueFamilyIndex = 0;
 	int indexOfGraphicsQueueFamily = -1;
@@ -412,7 +430,7 @@ bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR
 	{
 		// Check if the queue family supports presentation
 		VkBool32 doesItSupportPresent = VK_FALSE;
-		result = vkGetPhysicalDeviceSurfaceSupportKHR(phyDevice, (uint32_t)queueFamilyIndex, theSurface, &doesItSupportPresent);
+		result = vkGetPhysicalDeviceSurfaceSupportKHR(thePhysicalDevice, (uint32_t)queueFamilyIndex, theSurface, &doesItSupportPresent);
 		assert(result == VK_SUCCESS);
 
 		std::cout << "Properties for queue family " << queueFamilyIndex << std::endl;
@@ -485,7 +503,7 @@ bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR
 	 * refer to Chapter 31 (Features, Limits, and Formats) to learn more.
 	 */
 	VkPhysicalDeviceFeatures physicalDeviceFeatures;
-	vkGetPhysicalDeviceFeatures(phyDevice, &physicalDeviceFeatures);
+	vkGetPhysicalDeviceFeatures(thePhysicalDevice, &physicalDeviceFeatures);
 
 
 	/*
@@ -511,7 +529,7 @@ bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR
 	    .pEnabledFeatures = &physicalDeviceFeatures
 	};
 
-	result = vkCreateDevice(phyDevice, &deviceCreateInfo, nullptr, &myDevice);
+	result = vkCreateDevice(thePhysicalDevice, &deviceCreateInfo, nullptr, &myDevice);
 	assert(result == VK_SUCCESS);
 
 
@@ -541,17 +559,14 @@ bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR
 
 
 
-
-
-
-
-
+/**
+ * The good ol' main function.
+ */
 int main(int argc, char* argv[])
 {
 	/*
 	 * SDL2 Initialization
 	 */
-
 	SDL_Window *window;
 	SDL_SysWMinfo info;
 
@@ -628,21 +643,26 @@ int main(int argc, char* argv[])
 	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
 	extensionsNamesToEnable.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME); // TODO: add support for other windowing systems
 
-	// Create VkInstance
+	// Create a VkInstance
 	VkInstance myInstance;
 	createResult = createVkInstance(layersNamesToEnable, extensionsNamesToEnable, myInstance);
 	assert(createResult);
 
-	// Create VkSurfaceKHR
+	// Choose a physical device from the instance
+	VkPhysicalDevice myPhysicalDevice;
+	createResult = chooseVkPhysicalDevice(myInstance, myPhysicalDevice);
+	assert(createResult);
+
+	// Create a VkSurfaceKHR
 	VkSurfaceKHR mySurface;
 	createResult = createVkSurfaceXCB(myInstance, XGetXCBConnection(info.info.x11.display), static_cast<xcb_window_t>(info.info.x11.window), mySurface);
 	assert(createResult);
 
-	// Create VkDevice and its VkQueue
+	// Create a VkDevice and its VkQueue
 	VkDevice myDevice;
 	VkQueue myQueue;
 	uint32_t myQueueFamilyIndex;
-	createResult = createVkDeviceAndVkQueue(myInstance, mySurface, myDevice, myQueue, myQueueFamilyIndex);
+	createResult = createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, myDevice, myQueue, myQueueFamilyIndex);
 	assert(createResult);
 
 	// Initialization completed!
