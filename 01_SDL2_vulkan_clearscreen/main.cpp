@@ -711,6 +711,7 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 
 
 
+
 /**
  * Get the VkImages out of the specified swapchain, and create for each of them an
  * associated VkImageView.
@@ -774,6 +775,68 @@ bool getSwapchainImagesAndViews(const VkDevice theDevice,
 	outSwapchainImageViewsVector = std::move(swapchainImageViewsVector);
 	return true;
 }
+
+
+
+
+/**
+ * Create a VkCommandPool, from which all the VkCommandBuffer will be allocated.
+ */
+bool createCommandPool(const VkDevice theDevice,
+                       const uint32_t theQueueFamilyIndex,
+                       const VkCommandPoolCreateFlagBits createFlagBits,
+                       VkCommandPool & outCommandPool
+                       )
+{
+	VkResult result;
+
+	const VkCommandPoolCreateInfo commandPoolCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = createFlagBits,
+	    .queueFamilyIndex = theQueueFamilyIndex,
+	};
+
+	VkCommandPool myCommandPool;
+	result = vkCreateCommandPool(theDevice, &commandPoolCreateInfo, nullptr, &myCommandPool);
+	assert(result == VK_SUCCESS);
+
+	outCommandPool = myCommandPool;
+	return true;
+}
+
+
+
+
+
+/**
+ * Allocate a VkCommandBuffer from a VkCommandPool.
+ */
+bool allocateCommandBuffer(const VkDevice theDevice,
+                           const VkCommandPool theCommandPool,
+                           const VkCommandBufferLevel theCommandBufferLevel,
+                           VkCommandBuffer & outCommandBuffer
+                           )
+{
+	VkResult result;
+
+	const VkCommandBufferAllocateInfo commandBufferAllocateInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.pNext = nullptr,
+		.commandPool = theCommandPool,
+	    .level = theCommandBufferLevel,
+	    .commandBufferCount = 1
+	};
+
+	VkCommandBuffer myCommandBuffer;
+	result = vkAllocateCommandBuffers(theDevice, &commandBufferAllocateInfo, &myCommandBuffer);
+	assert(result == VK_SUCCESS);
+
+	outCommandBuffer = myCommandBuffer;
+	return true;
+}
+
+
 
 /*static void demo_set_image_layout(struct demo *demo, VkImage image,
 								  VkImageAspectFlags aspectMask,
@@ -940,18 +1003,37 @@ int main(int argc, char* argv[])
 	createResult = getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
 	assert(createResult);
 
+	// Create a command pool, so that we can later allocate the command buffers.
+	VkCommandPool myCommandPool;
+	createResult = createCommandPool(myDevice, myQueueFamilyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, myCommandPool);
+	assert(createResult);
+
+
+	// Allocate a command buffer that will hold our initialization commands.
+	VkCommandBuffer myCmdBufferInitialization;
+	createResult = allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferInitialization);
+	assert(createResult);
+
+	// Allocate a command buffer that will hold our clear screen and present commands.
+	VkCommandBuffer myCmdBufferPresent;
+	createResult = allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
+	assert(createResult);
+
 	// TODO remember to transition the images from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-
-
-
 
 	// Initialization completed!
 
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 
+
+
 	/*
 	 * Deinitialization
 	 */
+
+	// There's no function for destroying a command buffer; all command buffers
+	// allocated from a command pool are released when the command pool is destroyed.
+	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
 
 	// NOTE! DON'T destroy the swapchain images and views, because they are already destroyed
 	// during the destruction of the swapchain.
@@ -963,6 +1045,7 @@ int main(int argc, char* argv[])
 	vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
 	vkDestroyInstance(myInstance, nullptr);
 
+	// Quit SDL
 	SDL_DestroyWindow(window);
 	SDL_Quit();
 
