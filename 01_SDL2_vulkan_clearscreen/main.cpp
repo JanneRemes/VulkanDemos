@@ -7,16 +7,18 @@
 #include <algorithm>
 #include <assert.h>
 
+#include <X11/Xlib-xcb.h> // for XGetXCBConnection()
+
 //#define VK_PROTOTYPES
-#define VK_USE_PLATFORM_XLIB_KHR
+#define VK_USE_PLATFORM_XCB_KHR
 
 #include <vulkan/vulkan.h>
 
-int windowWidth = 800;
-int windowHeight = 600;
+static int windowWidth = 800;
+static int windowHeight = 600;
+static const char * applicationName = "mySdlVulkanTest";
+static const char * engineName = applicationName;
 
-const char * applicationName = "mySdlVulkanTest";
-const char * engineName = applicationName;
 
 
 /**
@@ -27,13 +29,13 @@ debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t src
              int32_t msgCode, const char *pLayerPrefix, const char *pMsg, void *pUserData)
 {
 	if (msgFlags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
-		std::cout << "ERROR: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+		std::cout << "--- ERROR: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
 	else if (msgFlags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
-		std::cout << "WARNING: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+		std::cout << "!!! WARNING: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
 	else if (msgFlags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT)
-		std::cout << "INFO: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+		std::cout << "~~~ INFO: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
 	else if (msgFlags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)
-		std::cout << "DEBUG: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+		std::cout << "~~~ DEBUG: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
 
 	/*
 	* false indicates that layer should not bail-out of an
@@ -47,8 +49,11 @@ debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t src
 
 
 
-
-VkInstance createVkInstance()
+/**
+ * Creates a VKInstance that has all the layer names in layersNamesToEnable
+ * and all the extension names in extensionsNamesToEnable enabled.
+ */
+VkInstance createVkInstance(const std::vector<const char *> & layersNamesToEnable, const std::vector<const char *> & extensionsNamesToEnable)
 {
 	VkResult result;
 
@@ -83,7 +88,6 @@ VkInstance createVkInstance()
 		.enabledExtensionCount = 0,             // Number of global extensions to enable
 		.ppEnabledExtensionNames = nullptr,     // Pointer to array of #enabledExtensionCount strings containing the names of the extensions to enable
 	};
-
 
 
 	/*
@@ -121,7 +125,6 @@ VkInstance createVkInstance()
 		}
 		std::cout << "------------------------------------------------------------------\n" << std::endl;
 	}
-
 
 
 	/*
@@ -170,25 +173,11 @@ VkInstance createVkInstance()
 	std::cout << "------------------------------------------------------------------\n" << std::endl;
 
 
-
 	/*
 	 * Layers enable:
-	 * Here we can populate a vector of layer names we want to enable,
-	 * and pass them through the ppEnabledLayerNames pointers inside VkInstanceCreateInfo.
+	 * Check if all the layer names we want to enable are present
+	 * in the VkLayerProperties we collected before in layerPropertiesVector.
 	 */
-	std::vector<const char *> layersNamesToEnable;
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_threading");       // Enable all the standard validation layers that come with the VulkanSDK.
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
-	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
-
-	// Check if all the layer names we want to enable are present
-	// in the VkLayerProperties we collected before in layerPropertiesVector.
 	for(const auto & layerName : layersNamesToEnable)
 	{
 		auto itr = std::find_if(layerPropertiesVector.begin(), layerPropertiesVector.end(),
@@ -198,7 +187,7 @@ VkInstance createVkInstance()
 		);
 
 		if(itr == layerPropertiesVector.end()) {
-			std::cout << "ERROR: Layer " << layerName << " was not found." << std::endl;
+			std::cout << "--- ERROR: Layer " << layerName << " was not found." << std::endl;
 			exit(1);
 		}
 	}
@@ -208,19 +197,11 @@ VkInstance createVkInstance()
 	instanceCreateInfo.ppEnabledLayerNames = layersNamesToEnable.data();
 
 
-
 	/*
 	 * Extensions enable:
-	 * Here we can populate a vector of extension names we want to enable,
-	 * and pass them through the ppEnabledExtensionNames pointers inside VkInstanceCreateInfo.
+	 * Check if all the extension names we want to enable are present
+	 * in the VkExtensionProperties we collected before in globalExtensionsVector.
 	 */
-	std::vector<const char *> extensionsNamesToEnable;
-	extensionsNamesToEnable.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
-	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-	extensionsNamesToEnable.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);	// TODO: add support for other windowing systems
-
-	// Check if all the extension names we want to enable are present
-	// in the VkExtensionProperties we collected before in globalExtensionsVector.
 	for(const auto & extName : extensionsNamesToEnable)
 	{
 		auto itr = std::find_if(globalExtensionsVector.begin(), globalExtensionsVector.end(),
@@ -230,7 +211,7 @@ VkInstance createVkInstance()
 		);
 
 		if(itr == globalExtensionsVector.end()) {
-			std::cout << "ERROR: extension " << extName << " was not found in the global extensions vector." << std::endl;
+			std::cout << "--- ERROR: extension " << extName << " was not found in the global extensions vector." << std::endl;
 			exit(1);
 		}
 	}
@@ -238,7 +219,6 @@ VkInstance createVkInstance()
 	// We pass the pointer and size of the extension names vector to the VkInstanceCreateInfo struct
 	instanceCreateInfo.enabledExtensionCount = (uint32_t)extensionsNamesToEnable.size();
 	instanceCreateInfo.ppEnabledExtensionNames = extensionsNamesToEnable.data();
-
 
 
 	/*
@@ -255,7 +235,6 @@ VkInstance createVkInstance()
 	instanceCreateInfo.pNext = &dbg_info;
 
 
-
 	/*
 	 * Here the magic happens: the VkInstance gets created from
 	 * the structs we filled before.
@@ -264,18 +243,51 @@ VkInstance createVkInstance()
 	result = vkCreateInstance(&instanceCreateInfo, nullptr, &myInstance);
 
 	if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
-		std::cout << "ERROR: Cannot create Vulkan instance, VK_ERROR_INCOMPATIBLE_DRIVER." << std::endl;
+		std::cout << "--- ERROR: Cannot create Vulkan instance, VK_ERROR_INCOMPATIBLE_DRIVER." << std::endl;
 		exit(1);
 	} else if(result != VK_SUCCESS) {
-		std::cout << "ERROR: Cannot create Vulkan instance, <error name here>" << std::endl;
+		std::cout << "--- ERROR: Cannot create Vulkan instance, <error name here>" << std::endl;
 		exit(1);
 	}
 
-
-	std::cout << "VkInstance created succesfully!" << std::endl;
+	std::cout << "+++ VkInstance created succesfully!\n" << std::endl;
 	return myInstance;
 }
 
+
+
+
+
+/*
+ * Create a VkSurfaceKHR from the specified instance.
+ *
+ * This example is currently limited to XCB only.
+ */
+VkSurfaceKHR createVkSurfaceXCB(const VkInstance & theInstance, xcb_connection_t * const xcbConnection, const xcb_window_t & xcbWindow)
+{
+	VkResult result;
+	VkSurfaceKHR mySurface;
+
+	/*
+	 * Surface creation:
+	 * this procedure depends on the Windowing system you use, but the steps to take
+	 * are very similar to each other.
+	 * Refer to the Window System Integration (WSI) chapter in the Vulkan Specification for more informations.
+	 */
+	VkXcbSurfaceCreateInfoKHR xlibSurfaceCreateInfo {
+		.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
+		.pNext = nullptr,
+		.flags = 0,
+		.connection = xcbConnection,
+		.window = xcbWindow
+	};
+
+	result = vkCreateXcbSurfaceKHR(theInstance, &xlibSurfaceCreateInfo, nullptr, &mySurface);
+	assert(result == VK_SUCCESS);
+
+	std::cout << "+++ VkSurface created succesfully!\n" << std::endl;
+	return mySurface;
+}
 
 
 
@@ -287,7 +299,7 @@ struct DeviceAndQueueStruct{
 	uint32_t queueFamilyIndex;
 };
 
-DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
+DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR & theSurface)
 {
 	VkResult result;
 
@@ -301,7 +313,7 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
     assert(result == VK_SUCCESS);
 
 	if(physicalDevicesCount <= 0) {
-		std::cout << "ERROR: no physical device found!" << std::endl;
+		std::cout << "--- ERROR: no physical device found!" << std::endl;
 		exit(1);
 	}
 
@@ -317,7 +329,7 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
 		VkPhysicalDeviceProperties phyDevProperties;
 		vkGetPhysicalDeviceProperties(phyDev, &phyDevProperties);
 
-		std::cout << "\nFound device: " << phyDevProperties.deviceName << " (index: " << (deviceIndex++) << ")" << std::endl;
+		std::cout << "Found device: " << phyDevProperties.deviceName << " (index: " << (deviceIndex++) << ")" << std::endl;
 		std::cout << "    apiVersion: " << phyDevProperties.apiVersion << std::endl;
 		std::cout << " driverVersion: " << phyDevProperties.driverVersion << std::endl;
 		std::cout << "      vendorID: " << phyDevProperties.vendorID << std::endl;
@@ -331,8 +343,8 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
 			case VK_PHYSICAL_DEVICE_TYPE_CPU:            std::cout << "CPU";            break;
 			default:                                     std::cout << "UNKNOWN!!!";     break;
 		}
-		std::cout << std::endl;
 
+		std::cout << std::endl;
 		// VkPhysicalDeviceLimits and VkPhysicalDeviceSparseProperties not logged for simplicity.
 	}
 
@@ -343,70 +355,19 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
 
 
 	/*
-	 * Queue Families:
-	 * we query the selected device for the number and type of Queue Families it supports,
-	 * we log to the console the properties, and we make sure the device has at least one graphics queue.
-	 */
-	uint32_t queueFamilyPropertyCount = 0;
-	vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &queueFamilyPropertyCount, nullptr);
-
-	if(queueFamilyPropertyCount <= 0) {
-		std::cout << "ERROR: chosen physical device has no queue families!" << std::endl;
-		exit(1);
-	}
-
-	std::vector<VkQueueFamilyProperties> queueFamilyPropertiesVector(queueFamilyPropertyCount);
-	vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &queueFamilyPropertyCount, queueFamilyPropertiesVector.data());
-
-	int queuePropCounter = 0;
-	int indexOfGraphicsQueueFamily = -1;
-	for(const auto & queueFamProp : queueFamilyPropertiesVector)
-	{
-		std::cout << "Properties for queue family " << queuePropCounter << std::endl;
-		std::cout << "                    queueFlags:";
-
-		if(queueFamProp.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-			std::cout << " GRAPHICS";
-			if(indexOfGraphicsQueueFamily < 0)
-				indexOfGraphicsQueueFamily = queuePropCounter;
-		}
-		if(queueFamProp.queueFlags & VK_QUEUE_COMPUTE_BIT)
-			std::cout << " COMPUTE";
-		if(queueFamProp.queueFlags & VK_QUEUE_TRANSFER_BIT)
-			std::cout << " TRANSFER";
-		if(queueFamProp.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT)
-			std::cout << " SPARSE_BINDING";
-
-		std::cout << '\n';
-		std::cout << "                    queueCount: " << queueFamProp.queueCount << std::endl;
-		std::cout << "            timestampValidBits: " << queueFamProp.timestampValidBits << std::endl;
-		std::cout << "   minImageTransferGranularity: " << queueFamProp.minImageTransferGranularity.width
-		                                        << ", " << queueFamProp.minImageTransferGranularity.height
-		                                        << ", " << queueFamProp.minImageTransferGranularity.depth
-		                                        << std::endl;
-
-		queuePropCounter++;
-	}
-
-	if(indexOfGraphicsQueueFamily < 0) {
-		std::cout << "ERROR: chosen physical device has no Graphics queues!" << std::endl;
-		exit(1);
-	}
-
-
-
-	/*
 	 * Device Layers and Extensions:
 	 * like we did for VkInstance, we need to query the implementation for the layers
-	 * and the extensions a certain physical device supports, so that we can
-	 * create the VkDevice.
+	 * and the extensions a certain physical device supports.
 	 * Since it's basically the same code as before (using
 	 * vkEnumerateDeviceLayerProperties/vkEnumerateDeviceExtensionProperties
 	 * instead of vkEnumerateInstanceLayerProperties/vkEnumerateInstanceExtensionProperties),
 	 * here we just check if the device supports the VK_KHR_SWAPCHAIN_EXTENSION_NAME extension,
 	 * and we assume it supports all the validation layers we ask to use.
+	 *
+	 * Ideally, you would be doing this for each physical device (like in the previous For cycle),
+	 * as part of the procedure for choosing the physical device, but for simplicity
+	 * we'll do it only once for the selected "phyDevice".
 	 */
-
 	uint32_t deviceExtensionCount = 0;
 	result = vkEnumerateDeviceExtensionProperties(phyDevice, nullptr, &deviceExtensionCount, nullptr);
 	assert(result == VK_SUCCESS && deviceExtensionCount > 0);
@@ -425,10 +386,74 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
 	}
 
 	if(!hasSwapchainExtension) {
-		std::cout << "ERROR: chosen physical device does not support VK_KHR_SWAPCHAIN_EXTENSION_NAME!" << std::endl;
+		std::cout << "--- ERROR: chosen physical device does not support VK_KHR_SWAPCHAIN_EXTENSION_NAME!" << std::endl;
 		exit(1);
 	}
 
+
+	/*
+	 * Queue Families:
+	 * we query the selected device for the number and type of Queue Families it supports,
+	 * and we log to the console the properties of each.
+	 *
+	 * We then choose a queue family that supports graphics commands and presentation.
+	 * (This demo supports, for now, only one queue that must support both graphics and present)
+	 */
+	uint32_t queueFamilyPropertyCount = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &queueFamilyPropertyCount, nullptr);
+
+	if(queueFamilyPropertyCount <= 0) {
+		std::cout << "--- ERROR: chosen physical device has no queue families!" << std::endl;
+		exit(1);
+	}
+
+	std::vector<VkQueueFamilyProperties> queueFamilyPropertiesVector(queueFamilyPropertyCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(phyDevice, &queueFamilyPropertyCount, queueFamilyPropertiesVector.data());
+
+	int queueFamilyIndex = 0;
+	int indexOfGraphicsQueueFamily = -1;
+	for(const auto & queueFamProp : queueFamilyPropertiesVector)
+	{
+		// Check if the queue family supports presentation
+		VkBool32 doesItSupportPresent = VK_FALSE;
+		result = vkGetPhysicalDeviceSurfaceSupportKHR(phyDevice, (uint32_t)queueFamilyIndex, theSurface, &doesItSupportPresent);
+		assert(result == VK_SUCCESS);
+
+		std::cout << "Properties for queue family " << queueFamilyIndex << std::endl;
+		std::cout << "                    queueFlags:";
+
+		if(queueFamProp.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+			std::cout << " GRAPHICS";
+		if(queueFamProp.queueFlags & VK_QUEUE_COMPUTE_BIT)
+			std::cout << " COMPUTE";
+		if(queueFamProp.queueFlags & VK_QUEUE_TRANSFER_BIT)
+			std::cout << " TRANSFER";
+		if(queueFamProp.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT)
+			std::cout << " SPARSE_BINDING";
+
+		std::cout << '\n';
+		std::cout << "                    queueCount: " << queueFamProp.queueCount << std::endl;
+		std::cout << "            timestampValidBits: " << queueFamProp.timestampValidBits << std::endl;
+		std::cout << "   minImageTransferGranularity: " << queueFamProp.minImageTransferGranularity.width
+		                                        << ", " << queueFamProp.minImageTransferGranularity.height
+		                                        << ", " << queueFamProp.minImageTransferGranularity.depth
+		                                        << std::endl;
+
+		std::cout << "          doesItSupportPresent: " << std::boolalpha << bool(doesItSupportPresent) << std::endl;
+
+		// Select queue family if it supports all the requisites.
+		if(bool(queueFamProp.queueFlags & VK_QUEUE_GRAPHICS_BIT) && doesItSupportPresent == VK_TRUE) {
+			if(indexOfGraphicsQueueFamily < 0)
+				indexOfGraphicsQueueFamily = queueFamilyIndex;
+		}
+
+		queueFamilyIndex++;
+	}
+
+	if(indexOfGraphicsQueueFamily < 0) {
+		std::cout << "--- ERROR: chosen physical device has no queue families that support both graphics and present!" << std::endl;
+		exit(1);
+	}
 
 
 	/*
@@ -463,7 +488,6 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
 	 * For this demo we're going to use the default settings;
 	 * refer to Chapter 31 (Features, Limits, and Formats) to learn more.
 	 */
-
 	VkPhysicalDeviceFeatures physicalDeviceFeatures;
 	vkGetPhysicalDeviceFeatures(phyDevice, &physicalDeviceFeatures);
 
@@ -511,7 +535,7 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
 	);
 
 	// We're done here!
-	std::cout << "VkDevice and VkQueue created succesfully!" << std::endl;
+	std::cout << "\n+++ VkDevice and VkQueue created succesfully!\n" << std::endl;
 	return {myDevice, myQueue, (uint32_t)indexOfGraphicsQueueFamily};
 }
 
@@ -523,28 +547,29 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance)
 
 
 
-
 int main(int argc, char* argv[])
 {
-	SDL_Init(SDL_INIT_VIDEO);   // Initialize SDL2
+	/*
+	 * SDL2 Initialization
+	 */
 
-	SDL_Window *window;        // Declare a pointer to an SDL_Window
+	SDL_Window *window;
 	SDL_SysWMinfo info;
 
-	// Create an application window with the following settings:
-	window = SDL_CreateWindow(
-		"An SDL2 window",         // const char* title
-		SDL_WINDOWPOS_UNDEFINED,  // int x: initial x position
-		SDL_WINDOWPOS_UNDEFINED,  // int y: initial y position
-		windowWidth,              // int w: width, in pixels
-		windowHeight,             // int h: height, in pixels
-		SDL_WINDOW_SHOWN          // Uint32 flags: window options, see docs
-	);
+	SDL_Init(SDL_INIT_VIDEO);
 
+	window = SDL_CreateWindow(
+		applicationName,
+		SDL_WINDOWPOS_UNDEFINED,
+		SDL_WINDOWPOS_UNDEFINED,
+		windowWidth,
+		windowHeight,
+		SDL_WINDOW_SHOWN
+	);
 
 	SDL_VERSION(&info.version);   // initialize info structure with SDL version info
 
-	if(SDL_GetWindowWMInfo(window,&info))
+	if(SDL_GetWindowWMInfo(window, &info))
 	{
 		const char *subsystem = "an unknown system!";
 		switch(info.subsystem)
@@ -567,31 +592,60 @@ int main(int argc, char* argv[])
 		#endif
 		}
 
-		SDL_Log("This program is running SDL version %d.%d.%d on %s\n",
-			(int)info.version.major,
-			(int)info.version.minor,
-			(int)info.version.patch,
-			subsystem);
+		std::cout << "~~~ This program is running SDL version "
+		          << (int)info.version.major << '.'
+		          << (int)info.version.minor << '.'
+		          << (int)info.version.patch << " on "
+		          << subsystem
+		          << std::endl;
 	}
 	else
 	{
-		// call failed
-		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Couldn't get window information: %s\n", SDL_GetError());
+		std::cout << "--- ERROR: Couldn't get window information: " << SDL_GetError() << std::endl;
+		exit(1);
 	}
 
 
 	/*
 	 * Do all the Vulkan goodies here.
 	 */
-	VkInstance myInstance = createVkInstance();
 
-	auto deviceAndQueue = createVkDeviceAndVkQueue(myInstance);
+	// Vector of the layer names we want to enable on the Instance
+	std::vector<const char *> layersNamesToEnable;
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_threading");       // Enable all the standard validation layers that come with the VulkanSDK.
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
+	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
+
+	// Vector of the extension names we want to enable on the Instance
+	std::vector<const char *> extensionsNamesToEnable;
+	extensionsNamesToEnable.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+	extensionsNamesToEnable.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME); // TODO: add support for other windowing systems
+
+	// Create Vulkan Objects
+	VkInstance myInstance = createVkInstance(layersNamesToEnable, extensionsNamesToEnable);
+	VkSurfaceKHR mySurface = createVkSurfaceXCB(myInstance, XGetXCBConnection(info.info.x11.display), static_cast<xcb_window_t>(info.info.x11.window));
+
+	auto deviceAndQueue = createVkDeviceAndVkQueue(myInstance, mySurface);
 	VkDevice myDevice = deviceAndQueue.device;
 	VkQueue myQueue = deviceAndQueue.queue;
+
+
+
+	/*
+	 * Deinitialization
+	 */
 
 	// There's no function for destroying a queue; all queues of a particular
 	// device are destroyed when the device is destroyed.
 	vkDestroyDevice(myDevice, nullptr);
+	vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
 	vkDestroyInstance(myInstance, nullptr);
 
 	SDL_DestroyWindow(window);

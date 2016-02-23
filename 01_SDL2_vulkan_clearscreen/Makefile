@@ -1,19 +1,19 @@
 
+CXX=clang++
 OUTFILE=test
 SOURCES=main.cpp
 
-LIBS=$(shell sdl2-config --libs) -lvulkan -lxcb
+LIBS=$(shell sdl2-config --libs) -lvulkan -lX11-xcb
 
 CPPFLAGS=$(shell sdl2-config --cflags) -O2 -std=c++14
 
-.PHONY: all clear
+.PHONY: all clean
 
 all: $(OUTFILE)
 	@true
 
-clear:
+clean:
 	rm $(OUTFILE)
 
 $(OUTFILE): $(SOURCES)
-	clang++ $(SOURCES) -o $(OUTFILE) $(LIBS) $(CPPFLAGS)
-
+	$(CXX) $(CPPFLAGS) $(SOURCES) -o $(OUTFILE) $(LIBS)
