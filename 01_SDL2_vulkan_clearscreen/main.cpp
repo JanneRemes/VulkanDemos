@@ -53,7 +53,7 @@ debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t src
  * Creates a VKInstance that has all the layer names in layersNamesToEnable
  * and all the extension names in extensionsNamesToEnable enabled.
  */
-VkInstance createVkInstance(const std::vector<const char *> & layersNamesToEnable, const std::vector<const char *> & extensionsNamesToEnable)
+bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, const std::vector<const char *> & extensionsNamesToEnable, VkInstance & outInstance)
 {
 	VkResult result;
 
@@ -188,7 +188,7 @@ VkInstance createVkInstance(const std::vector<const char *> & layersNamesToEnabl
 
 		if(itr == layerPropertiesVector.end()) {
 			std::cout << "--- ERROR: Layer " << layerName << " was not found." << std::endl;
-			exit(1);
+			return false;
 		}
 	}
 
@@ -212,7 +212,7 @@ VkInstance createVkInstance(const std::vector<const char *> & layersNamesToEnabl
 
 		if(itr == globalExtensionsVector.end()) {
 			std::cout << "--- ERROR: extension " << extName << " was not found in the global extensions vector." << std::endl;
-			exit(1);
+			return false;
 		}
 	}
 
@@ -244,14 +244,15 @@ VkInstance createVkInstance(const std::vector<const char *> & layersNamesToEnabl
 
 	if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
 		std::cout << "--- ERROR: Cannot create Vulkan instance, VK_ERROR_INCOMPATIBLE_DRIVER." << std::endl;
-		exit(1);
+		return false;
 	} else if(result != VK_SUCCESS) {
 		std::cout << "--- ERROR: Cannot create Vulkan instance, <error name here>" << std::endl;
-		exit(1);
+		return false;
 	}
 
 	std::cout << "+++ VkInstance created succesfully!\n" << std::endl;
-	return myInstance;
+	outInstance = myInstance;
+	return true;
 }
 
 
@@ -263,7 +264,7 @@ VkInstance createVkInstance(const std::vector<const char *> & layersNamesToEnabl
  *
  * This example is currently limited to XCB only.
  */
-VkSurfaceKHR createVkSurfaceXCB(const VkInstance & theInstance, xcb_connection_t * const xcbConnection, const xcb_window_t & xcbWindow)
+bool createVkSurfaceXCB(const VkInstance & theInstance, xcb_connection_t * const xcbConnection, const xcb_window_t & xcbWindow, VkSurfaceKHR & outInstance)
 {
 	VkResult result;
 	VkSurfaceKHR mySurface;
@@ -286,20 +287,15 @@ VkSurfaceKHR createVkSurfaceXCB(const VkInstance & theInstance, xcb_connection_t
 	assert(result == VK_SUCCESS);
 
 	std::cout << "+++ VkSurface created succesfully!\n" << std::endl;
-	return mySurface;
+	outInstance = mySurface;
+	return true;
 }
 
 
 
 
 
-struct DeviceAndQueueStruct{
-	VkDevice device;
-	VkQueue queue;
-	uint32_t queueFamilyIndex;
-};
-
-DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR & theSurface)
+bool createVkDeviceAndVkQueue(const VkInstance & theInstance, const VkSurfaceKHR & theSurface, VkDevice & outDevice, VkQueue & outQueue, uint32_t & outQueueFamilyIndex)
 {
 	VkResult result;
 
@@ -314,7 +310,7 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance, co
 
 	if(physicalDevicesCount <= 0) {
 		std::cout << "--- ERROR: no physical device found!" << std::endl;
-		exit(1);
+		return false;
 	}
 
 	// Now query the pysical devices' actual data.
@@ -387,7 +383,7 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance, co
 
 	if(!hasSwapchainExtension) {
 		std::cout << "--- ERROR: chosen physical device does not support VK_KHR_SWAPCHAIN_EXTENSION_NAME!" << std::endl;
-		exit(1);
+		return false;
 	}
 
 
@@ -404,7 +400,7 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance, co
 
 	if(queueFamilyPropertyCount <= 0) {
 		std::cout << "--- ERROR: chosen physical device has no queue families!" << std::endl;
-		exit(1);
+		return false;
 	}
 
 	std::vector<VkQueueFamilyProperties> queueFamilyPropertiesVector(queueFamilyPropertyCount);
@@ -452,7 +448,7 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance, co
 
 	if(indexOfGraphicsQueueFamily < 0) {
 		std::cout << "--- ERROR: chosen physical device has no queue families that support both graphics and present!" << std::endl;
-		exit(1);
+		return false;
 	}
 
 
@@ -536,7 +532,10 @@ DeviceAndQueueStruct createVkDeviceAndVkQueue(const VkInstance & theInstance, co
 
 	// We're done here!
 	std::cout << "\n+++ VkDevice and VkQueue created succesfully!\n" << std::endl;
-	return {myDevice, myQueue, (uint32_t)indexOfGraphicsQueueFamily};
+	outDevice = myDevice;
+	outQueue = myQueue;
+	outQueueFamilyIndex = (uint32_t)indexOfGraphicsQueueFamily;
+	return true;
 }
 
 
@@ -609,6 +608,7 @@ int main(int argc, char* argv[])
 	/*
 	 * Do all the Vulkan goodies here.
 	 */
+	bool createResult;
 
 	// Vector of the layer names we want to enable on the Instance
 	std::vector<const char *> layersNamesToEnable;
@@ -628,14 +628,24 @@ int main(int argc, char* argv[])
 	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
 	extensionsNamesToEnable.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME); // TODO: add support for other windowing systems
 
-	// Create Vulkan Objects
-	VkInstance myInstance = createVkInstance(layersNamesToEnable, extensionsNamesToEnable);
-	VkSurfaceKHR mySurface = createVkSurfaceXCB(myInstance, XGetXCBConnection(info.info.x11.display), static_cast<xcb_window_t>(info.info.x11.window));
+	// Create VkInstance
+	VkInstance myInstance;
+	createResult = createVkInstance(layersNamesToEnable, extensionsNamesToEnable, myInstance);
+	assert(createResult);
 
-	auto deviceAndQueue = createVkDeviceAndVkQueue(myInstance, mySurface);
-	VkDevice myDevice = deviceAndQueue.device;
-	VkQueue myQueue = deviceAndQueue.queue;
+	// Create VkSurfaceKHR
+	VkSurfaceKHR mySurface;
+	createResult = createVkSurfaceXCB(myInstance, XGetXCBConnection(info.info.x11.display), static_cast<xcb_window_t>(info.info.x11.window), mySurface);
+	assert(createResult);
 
+	// Create VkDevice and its VkQueue
+	VkDevice myDevice;
+	VkQueue myQueue;
+	uint32_t myQueueFamilyIndex;
+	createResult = createVkDeviceAndVkQueue(myInstance, mySurface, myDevice, myQueue, myQueueFamilyIndex);
+	assert(createResult);
+
+	// Initialization completed!
 
 
 	/*
