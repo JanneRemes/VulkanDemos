@@ -5,7 +5,9 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <assert.h>
+#include <chrono>
+#include <thread>
+#include <cassert>
 
 #include <X11/Xlib-xcb.h> // for XGetXCBConnection()
 
@@ -264,7 +266,7 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
  *
  * This example is currently limited to XCB only.
  */
-bool createVkSurfaceXCB(const VkInstance & theInstance, xcb_connection_t * const xcbConnection, const xcb_window_t & xcbWindow, VkSurfaceKHR & outInstance)
+bool createVkSurfaceXCB(const VkInstance theInstance, xcb_connection_t * const xcbConnection, const xcb_window_t & xcbWindow, VkSurfaceKHR & outInstance)
 {
 	VkResult result;
 	VkSurfaceKHR mySurface;
@@ -300,7 +302,7 @@ bool createVkSurfaceXCB(const VkInstance & theInstance, xcb_connection_t * const
  * ideally, we would query the capabilities of each phydev and choose the
  * one best suited for our needs).
  */
-bool chooseVkPhysicalDevice(const VkInstance & theInstance, VkPhysicalDevice & outPhysicalDevice)
+bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & outPhysicalDevice)
 {
 	VkResult result;
 
@@ -364,7 +366,7 @@ bool chooseVkPhysicalDevice(const VkInstance & theInstance, VkPhysicalDevice & o
 /**
  * Creates a VkDevice and its associated VkQueue.
  */
-bool createVkDeviceAndVkQueue(const VkPhysicalDevice & thePhysicalDevice, const VkSurfaceKHR & theSurface, VkDevice & outDevice, VkQueue & outQueue, uint32_t & outQueueFamilyIndex)
+bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const VkSurfaceKHR theSurface, VkDevice & outDevice, VkQueue & outQueue, uint32_t & outQueueFamilyIndex)
 {
 	VkResult result;
 
@@ -560,6 +562,140 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice & thePhysicalDevice, const 
 
 
 /**
+ * Create a VkSwapchain from the VkSurface provided.
+ */
+bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice, const VkDevice theDevice, const VkSurfaceKHR theSurface, VkSwapchainKHR & outSwapchain)
+{
+	VkResult result;
+
+	/*
+	 * Get the list of VkFormat's that are supported.
+	 * TODO: document
+	 */
+	uint32_t surfaceFormatsCount;
+	result = vkGetPhysicalDeviceSurfaceFormatsKHR(thePhysicalDevice, theSurface, &surfaceFormatsCount, nullptr);
+	assert(result == VK_SUCCESS);
+
+	std::vector<VkSurfaceFormatKHR> surfaceFormatsVector(surfaceFormatsCount);
+	result = vkGetPhysicalDeviceSurfaceFormatsKHR(thePhysicalDevice, theSurface, &surfaceFormatsCount, surfaceFormatsVector.data());
+	assert(result == VK_SUCCESS);
+
+	// If the format list includes just one entry of VK_FORMAT_UNDEFINED,
+	// the surface has no preferred format. Otherwise, at least one
+	// supported format will be returned.
+	VkFormat surfaceFormat;
+
+	if (surfaceFormatsCount == 1 && surfaceFormatsVector[0].format == VK_FORMAT_UNDEFINED) {
+		surfaceFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	} else {
+		assert(surfaceFormatsCount >= 1);
+		surfaceFormat = surfaceFormatsVector[0].format;
+	}
+
+	VkColorSpaceKHR surfaceColorSpace = surfaceFormatsVector[0].colorSpace;
+
+
+	/*
+	 * Get physical device surface capabilities
+	 * TODO: document
+	 */
+	VkSurfaceCapabilitiesKHR surfaceCapabilities;
+    result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(thePhysicalDevice, theSurface, &surfaceCapabilities);
+    assert(result == VK_SUCCESS);
+
+
+	/*
+	 * Get Physical device surface present modes
+	 * TODO: understand what they are used for
+	 */
+	/*uint32_t presentModeCount = 0;
+	result = vkGetPhysicalDeviceSurfacePresentModesKHR(thePhysicalDevice, theSurface, &presentModeCount, nullptr);
+	assert(result == VK_SUCCESS);
+
+	if(presentModeCount <= 0) {
+		std::cout << "--- ERROR: chosen physical device has present modes!" << std::endl;
+		return false;
+	}
+
+	std::vector<VkPresentModeKHR> presentModesVector(presentModeCount);
+	result = vkGetPhysicalDeviceSurfacePresentModesKHR(thePhysicalDevice, theSurface, &presentModeCount, presentModesVector.data());
+	assert(result == VK_SUCCESS);*/
+
+
+	// Get the swapchain extent, and check if it's already filled or if we must manually set width and height.
+	VkExtent2D swapchainExtent = surfaceCapabilities.currentExtent;
+
+	if (swapchainExtent.width == (uint32_t)(-1)) // width and height are either both -1, or both not -1.
+	{
+		// If the surface size is undefined, the size is set to
+		// the size of the images requested.
+		swapchainExtent.width = (uint32_t)windowWidth;
+		swapchainExtent.height = (uint32_t)windowHeight;
+	}
+	/*else {
+		// If the surface size is defined, the swap chain size must match
+		demo->width = surfaceCapabilities.currentExtent.width;
+		demo->height = surfaceCapabilities.currentExtent.height;
+	}*/
+
+
+	// Determine the number of VkImage's to use in the swap chain (we desire to
+	// own only 1 image at a time, besides the images being displayed and
+	// queued for display):
+	uint32_t desiredNumberOfSwapchainImages = surfaceCapabilities.minImageCount + 1;
+
+	if (surfaceCapabilities.maxImageCount > 0) {
+		// Limit the number of images, if maxImageCount is defined.
+		desiredNumberOfSwapchainImages = std::min(desiredNumberOfSwapchainImages, surfaceCapabilities.maxImageCount);
+	}
+
+	// TODO: document this part
+	VkSurfaceTransformFlagBitsKHR preTransform;
+
+	if (surfaceCapabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+		preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+	else
+		preTransform = surfaceCapabilities.currentTransform;
+
+
+	/*
+	 * Create the swapchain
+	 * TODO document all the fields
+	 */
+	const VkSwapchainCreateInfoKHR swapchainCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+		.pNext = nullptr,
+	    .flags = 0,
+		.surface = theSurface,
+		.minImageCount = desiredNumberOfSwapchainImages,
+		.imageFormat = surfaceFormat,
+		.imageColorSpace = surfaceColorSpace,
+		.imageExtent = swapchainExtent,
+		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		.preTransform = preTransform,
+		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+		.imageArrayLayers = 1,
+		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		.queueFamilyIndexCount = 0,
+		.pQueueFamilyIndices = nullptr,
+		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
+		.oldSwapchain = VK_NULL_HANDLE,
+		.clipped = true,
+	};
+
+	VkSwapchainKHR mySwapchain;
+	result = vkCreateSwapchainKHR(theDevice, &swapchainCreateInfo, nullptr, &mySwapchain);
+	assert(result == VK_SUCCESS);
+
+	std::cout << "+++ VkSwapchainKHR created succesfully!\n" << std::endl;
+	outSwapchain = mySwapchain;
+	return true;
+}
+
+
+
+
+/**
  * The good ol' main function.
  */
 int main(int argc, char* argv[])
@@ -665,13 +801,21 @@ int main(int argc, char* argv[])
 	createResult = createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, myDevice, myQueue, myQueueFamilyIndex);
 	assert(createResult);
 
+	// Create a VkSwapchainKHR
+	VkSwapchainKHR mySwapchain;
+	createResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, mySwapchain);
+	assert(createResult);
+
+
 	// Initialization completed!
 
+	std::this_thread::sleep_for(std::chrono::seconds(1));
 
 	/*
 	 * Deinitialization
 	 */
 
+	vkDestroySwapchainKHR(myDevice, mySwapchain, nullptr);
 	// There's no function for destroying a queue; all queues of a particular
 	// device are destroyed when the device is destroyed.
 	vkDestroyDevice(myDevice, nullptr);
