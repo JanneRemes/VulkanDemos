@@ -808,7 +808,6 @@ bool createCommandPool(const VkDevice theDevice,
 
 
 
-
 /**
  * Allocate a VkCommandBuffer from a VkCommandPool.
  */
@@ -838,51 +837,164 @@ bool allocateCommandBuffer(const VkDevice theDevice,
 
 
 
-/*static void demo_set_image_layout(struct demo *demo, VkImage image,
-								  VkImageAspectFlags aspectMask,
-                                  VkImageLayout old_image_layout,
-                                  VkImageLayout new_image_layout) {
 
-	// comandi per far cambiare lo stato all'image
-    VkImageMemoryBarrier image_memory_barrier = {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-        .pNext = NULL,
-        .srcAccessMask = 0,
-        .dstAccessMask = 0,
-        .oldLayout = old_image_layout,
-        .newLayout = new_image_layout,
-        .image = image,
-        .subresourceRange = {aspectMask, 0, 1, 0, 1}};
+/**
+ * Fill the specified command buffer with the initialization commands for this demo.
+ *
+ * The commands consist in just a bunch of CmdPipelineBarrier that transition the
+ * swapchain images from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR.
+ */
+bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector)
+{
+	VkResult result;
 
-    if (new_image_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        // Make sure anything that was copying from this image has completed
-        image_memory_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    }
+	/*
+	 * Begin recording of the command buffer
+	 */
+	VkCommandBufferBeginInfo commandBufferBeginInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	    .pNext = nullptr,
+	    .flags = (VkCommandBufferUsageFlags)0,
+	    .pInheritanceInfo = nullptr,
+	};
 
-    if (new_image_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-        image_memory_barrier.dstAccessMask =
-            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    }
+	result = vkBeginCommandBuffer(theCommandBuffer, &commandBufferBeginInfo);
+	assert(result == VK_SUCCESS);
 
-    if (new_image_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
-        image_memory_barrier.dstAccessMask =
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    }
+	/*
+	 * "The pipeline barrier specifies an execution dependency such that all work performed
+	 * by the set of pipeline stages included in srcStageMask of the first set of commands
+	 * completes before any work performed by the set of pipeline stages
+	 * included in dstStageMask of the second set of commands begins." [Section 6.5]
+	*/
+	VkImageMemoryBarrier imageMemoryBarrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = 0,
+		.dstAccessMask = 0,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+	};
 
-    if (new_image_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-        // Make sure any Copy or CPU writes to image are flushed
-        image_memory_barrier.dstAccessMask =
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
-    }
+	VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;	// TODO explain those bits
+	VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
-    VkImageMemoryBarrier *pmemory_barrier = &image_memory_barrier;
+	/*
+	 * Add a PipelineBarrier command for each swapchain image.
+	 */
+	for(const auto & image : theSwapchainImagesVector)
+	{
+		imageMemoryBarrier.image = image;
 
-    VkPipelineStageFlags src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    VkPipelineStageFlags dest_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		vkCmdPipelineBarrier(theCommandBuffer, srcStageMask, dstStageMask,
+			0,         // dependencyFlags
+			0,         // memoryBarrierCount
+			nullptr,   // pMemoryBarriers
+			0,         // bufferMemoryBarrierCount
+			nullptr,   // pBufferMemoryBarriers
+			1,         // imageMemoryBarrierCount
+			&imageMemoryBarrier // pImageMemoryBarriers
+		);
+	}
 
-    vkCmdPipelineBarrier(demo->setup_cmd, src_stages, dest_stages, 0, 0, NULL,
-                         0, NULL, 1, pmemory_barrier);
-}*/
+	/*
+	 * End recording of the command buffer
+	 */
+	result = vkEndCommandBuffer(theCommandBuffer);
+	return true;
+}
+
+
+
+
+/**
+ * Fill the specified command buffer with the present commands for this demo.
+ *
+ * The commands consist in
+ */
+bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkImage theCurrentSwapchainImage, const float clearColorR, const float clearColorG, const float clearColorB)
+{
+	VkResult result;
+
+	/*
+	 * Begin recording of the command buffer
+	 */
+	VkCommandBufferBeginInfo commandBufferBeginInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	    .pNext = nullptr,
+	    .flags = (VkCommandBufferUsageFlags)0,
+	    .pInheritanceInfo = nullptr,
+	};
+
+	result = vkBeginCommandBuffer(theCommandBuffer, &commandBufferBeginInfo);
+	assert(result == VK_SUCCESS);
+
+
+	// Pre-fill a VkImageMemoryBarrier structure that we'll use later
+	VkImageMemoryBarrier imageMemoryBarrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = 0,
+		.dstAccessMask = 0,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+	    .image = theCurrentSwapchainImage,
+	};
+
+	/*
+	 * Transition the swapchain image from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+	 * to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+	 */
+	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+
+	vkCmdPipelineBarrier(theCommandBuffer,
+		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		0, 0, nullptr, 0, nullptr, 1, &imageMemoryBarrier
+	);
+
+	/*
+	 * Add the CmdClearColorImage that will fill the swapchain image with the specified color.
+	 * For this command to work, the destination image must be in either VK_IMAGE_LAYOUT_GENERAL
+	 * or VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL layout.
+	 */
+	VkClearColorValue clearColorValue;
+	VkImageSubresourceRange imageSubresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+	clearColorValue.float32[0] = clearColorR;	// FIXME it assumes the image is a floating point one. Is it always true?
+	clearColorValue.float32[1] = clearColorG;
+	clearColorValue.float32[2] = clearColorB;
+	clearColorValue.float32[3] = 1.0f;	// alpha
+	vkCmdClearColorImage(theCommandBuffer, theCurrentSwapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColorValue, 1, &imageSubresourceRange);
+
+
+	/*
+	 * Transition the swapchain image from VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+	 * to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+	 */
+	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+	imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+	imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+
+	vkCmdPipelineBarrier(theCommandBuffer,
+		VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+		0, 0, nullptr, 0, nullptr, 1, &imageMemoryBarrier
+	);
+
+
+	/*
+	 * End recording of the command buffer
+	 */
+	result = vkEndCommandBuffer(theCommandBuffer);
+	return true;
+}
+
+
 
 
 /**
@@ -949,7 +1061,7 @@ int main(int argc, char* argv[])
 	/*
 	 * Do all the Vulkan goodies here.
 	 */
-	bool createResult;
+	bool boolResult;
 
 	// Vector of the layer names we want to enable on the Instance
 	std::vector<const char *> layersNamesToEnable;
@@ -971,58 +1083,67 @@ int main(int argc, char* argv[])
 
 	// Create a VkInstance
 	VkInstance myInstance;
-	createResult = createVkInstance(layersNamesToEnable, extensionsNamesToEnable, myInstance);
-	assert(createResult);
+	boolResult = createVkInstance(layersNamesToEnable, extensionsNamesToEnable, myInstance);
+	assert(boolResult);
 
 	// Choose a physical device from the instance
 	VkPhysicalDevice myPhysicalDevice;
-	createResult = chooseVkPhysicalDevice(myInstance, myPhysicalDevice);
-	assert(createResult);
+	boolResult = chooseVkPhysicalDevice(myInstance, myPhysicalDevice);
+	assert(boolResult);
 
 	// Create a VkSurfaceKHR
+	// TODO add support for other windowing systems
 	VkSurfaceKHR mySurface;
-	createResult = createVkSurfaceXCB(myInstance, XGetXCBConnection(info.info.x11.display), static_cast<xcb_window_t>(info.info.x11.window), mySurface);
-	assert(createResult);
+	boolResult = createVkSurfaceXCB(myInstance, XGetXCBConnection(info.info.x11.display), static_cast<xcb_window_t>(info.info.x11.window), mySurface);
+	assert(boolResult);
 
 	// Create a VkDevice and its VkQueue
 	VkDevice myDevice;
 	VkQueue myQueue;
 	uint32_t myQueueFamilyIndex;
-	createResult = createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, myDevice, myQueue, myQueueFamilyIndex);
-	assert(createResult);
+	boolResult = createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, myDevice, myQueue, myQueueFamilyIndex);
+	assert(boolResult);
 
 	// Create a VkSwapchainKHR
 	VkSwapchainKHR mySwapchain;
 	VkFormat mySurfaceFormat;
-	createResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
-	assert(createResult);
+	boolResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
+	assert(boolResult);
 
 	// Create the swapchain images and related views.
 	std::vector<VkImage> mySwapchainImagesVector;
 	std::vector<VkImageView> mySwapchainImageViewsVector;
-	createResult = getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
-	assert(createResult);
+	boolResult = getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
+	assert(boolResult);
 
 	// Create a command pool, so that we can later allocate the command buffers.
 	VkCommandPool myCommandPool;
-	createResult = createCommandPool(myDevice, myQueueFamilyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, myCommandPool);
-	assert(createResult);
+	boolResult = createCommandPool(myDevice, myQueueFamilyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, myCommandPool);
+	assert(boolResult);
 
 
 	// Allocate a command buffer that will hold our initialization commands.
 	VkCommandBuffer myCmdBufferInitialization;
-	createResult = allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferInitialization);
-	assert(createResult);
+	boolResult = allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferInitialization);
+	assert(boolResult);
 
 	// Allocate a command buffer that will hold our clear screen and present commands.
 	VkCommandBuffer myCmdBufferPresent;
-	createResult = allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
-	assert(createResult);
+	boolResult = allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
+	assert(boolResult);
 
-	// TODO remember to transition the images from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+
+	// We fill the initialization command buffer with... the initialization commands.
+	// (In this demo, we just need to transition the swapchain images
+	// from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector);
+	assert(boolResult);
+
+	// We fill the present command buffer with... the present commands.
+	boolResult = fillPresentCommandBuffer(myCmdBufferPresent, /*swapchain image*/, 1.0f, 0.2f, 0.2f);
+	assert(boolResult);
 
 	// Initialization completed!
-
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 
 
@@ -1031,7 +1152,7 @@ int main(int argc, char* argv[])
 	 * Deinitialization
 	 */
 
-	// There's no function for destroying a command buffer; all command buffers
+	// You don't need to call vkFreeCommandBuffers for all command buffers; all command buffers
 	// allocated from a command pool are released when the command pool is destroyed.
 	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
 
