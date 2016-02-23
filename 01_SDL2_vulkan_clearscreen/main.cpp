@@ -563,8 +563,10 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 
 /**
  * Create a VkSwapchain from the VkSurface provided.
+ * Parameter "theOldSwapChain" is used if we are recreating a swapchain (for example if we resized the window);
+ * if we are creating the swapchain for the first time, this parameter must be VK_NULL_HANDLE.
  */
-bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice, const VkDevice theDevice, const VkSurfaceKHR theSurface, VkSwapchainKHR & outSwapchain)
+bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice, const VkDevice theDevice, const VkSurfaceKHR theSurface, VkSwapchainKHR theOldSwapChain, VkSwapchainKHR & outSwapchain)
 {
 	VkResult result;
 
@@ -632,7 +634,7 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice, const VkDevice 
 		swapchainExtent.width = (uint32_t)windowWidth;
 		swapchainExtent.height = (uint32_t)windowHeight;
 	}
-	/*else {
+	/*else {	// TODO investigate if it's actually a good idea (since we are using SDL, the surface SHOULD have a valid dimension, wouldn't it?)
 		// If the surface size is defined, the swap chain size must match
 		demo->width = surfaceCapabilities.currentExtent.width;
 		demo->height = surfaceCapabilities.currentExtent.height;
@@ -678,8 +680,8 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice, const VkDevice 
 		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		.queueFamilyIndexCount = 0,
 		.pQueueFamilyIndices = nullptr,
-		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
-		.oldSwapchain = VK_NULL_HANDLE,
+		.presentMode = VK_PRESENT_MODE_FIFO_KHR,	// TODO understand this parameter
+		.oldSwapchain = theOldSwapChain,  // if we are recreating a swapchain, we pass the old one here.
 		.clipped = true,
 	};
 
@@ -687,8 +689,16 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice, const VkDevice 
 	result = vkCreateSwapchainKHR(theDevice, &swapchainCreateInfo, nullptr, &mySwapchain);
 	assert(result == VK_SUCCESS);
 
-	std::cout << "+++ VkSwapchainKHR created succesfully!\n" << std::endl;
+	std::cout << "+++ VkSwapchainKHR created succesfully!\n";
 	outSwapchain = mySwapchain;
+
+	// Destroy the old swapchain, if there was one.
+	if(theOldSwapChain != VK_NULL_HANDLE) {
+		vkDestroySwapchainKHR(theDevice, theOldSwapChain, nullptr);
+		std::cout << "+++     ... and old VkSwapchainKHR destroyed succesfully!\n";
+	}
+	std::cout << std::endl;
+
 	return true;
 }
 
@@ -803,7 +813,7 @@ int main(int argc, char* argv[])
 
 	// Create a VkSwapchainKHR
 	VkSwapchainKHR mySwapchain;
-	createResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, mySwapchain);
+	createResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, VK_NULL_HANDLE, mySwapchain);
 	assert(createResult);
 
 
