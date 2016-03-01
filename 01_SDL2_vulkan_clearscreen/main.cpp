@@ -662,21 +662,30 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 
 
 	/*
-	 * Get Physical device surface present modes
-	 * TODO: understand what they are used for
+	 * Get Physical device surface present modes.
+	 * A present mode is how the Device will synchronize itself with the video screen when
+	 * has rendered frames available to display.
 	 */
-	/*uint32_t presentModeCount = 0;
+	uint32_t presentModeCount = 0;
 	result = vkGetPhysicalDeviceSurfacePresentModesKHR(thePhysicalDevice, theSurface, &presentModeCount, nullptr);
-	assert(result == VK_SUCCESS);
-
-	if(presentModeCount <= 0) {
-		std::cout << "--- ERROR: chosen physical device has present modes!" << std::endl;
-		return false;
-	}
+	assert(result == VK_SUCCESS && presentModeCount > 0);
 
 	std::vector<VkPresentModeKHR> presentModesVector(presentModeCount);
 	result = vkGetPhysicalDeviceSurfacePresentModesKHR(thePhysicalDevice, theSurface, &presentModeCount, presentModesVector.data());
-	assert(result == VK_SUCCESS);*/
+	assert(result == VK_SUCCESS);
+
+	for(const auto presMode : presentModesVector)
+	{
+		std::cout << "--- Supported present mode: ";
+		switch(presMode) {
+			case VK_PRESENT_MODE_IMMEDIATE_KHR:    std::cout << "VK_PRESENT_MODE_IMMEDIATE_KHR";    break;
+			case VK_PRESENT_MODE_MAILBOX_KHR:      std::cout << "VK_PRESENT_MODE_MAILBOX_KHR";      break;
+			case VK_PRESENT_MODE_FIFO_KHR:         std::cout << "VK_PRESENT_MODE_FIFO_KHR";         break;
+			case VK_PRESENT_MODE_FIFO_RELAXED_KHR: std::cout << "VK_PRESENT_MODE_FIFO_RELAXED_KHR"; break;
+			default: std::cout << "???"; break;
+		}
+		std::cout << " (" << presMode << ')' << std::endl;
+	}
 
 
 	// Get the swapchain extent, and check if it's already filled or if we must manually set width and height.
@@ -1087,7 +1096,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 	 * We acquire the index of the next available swapchain image.
 	 */
 	uint32_t imageIndex = UINT32_MAX;
-	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, thePresentFence, &imageIndex);
+	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, VK_NULL_HANDLE/*thePresentFence*/, &imageIndex);
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
 		// The swapchain is out of date (e.g. the window was resized) and must be recreated.
@@ -1129,7 +1138,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 		.pSignalSemaphores = &renderingCompletedSemaphore
 	};
 
-	result = vkQueueSubmit(theQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	result = vkQueueSubmit(theQueue, 1, &submitInfo, /*VK_NULL_HANDLE*/thePresentFence);
 	assert(result == VK_SUCCESS);
 
 	VkPresentInfoKHR presentInfo = {
