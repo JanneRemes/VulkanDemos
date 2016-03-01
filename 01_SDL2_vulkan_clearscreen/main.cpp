@@ -3,6 +3,7 @@
 
 
 #include <iostream>
+#include <iomanip>
 #include <vector>
 #include <algorithm>
 #include <chrono>
@@ -31,13 +32,19 @@ debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t src
              int32_t msgCode, const char *pLayerPrefix, const char *pMsg, void *pUserData)
 {
 	if (msgFlags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
-		std::cout << "--- ERROR: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+		std::cout << "---   ERR";
 	else if (msgFlags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
-		std::cout << "!!! WARNING: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+		std::cout << "!!!  WARN";
 	else if (msgFlags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT)
-		std::cout << "~~~ INFO: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+		std::cout << "~~~  INFO";
 	else if (msgFlags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)
-		std::cout << "~~~ DEBUG: [" << pLayerPrefix << "] Code " << msgCode << " : " << pMsg << std::endl;
+		std::cout << "~~~ DEBUG";
+	else if (msgFlags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
+		std::cout << "~~~ PERFW";
+	else
+		std::cout << "~~~ ?WTF?";
+
+	std::cout << ": [" << std::setw(3) << pLayerPrefix << "]" << std::setw(3) << msgCode << ": " << pMsg << std::endl;
 
 	/*
 	* false indicates that layer should not bail-out of an
@@ -260,6 +267,48 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 
 
 
+/*
+ * Create a Debug Report callback on the specified Instance.
+ *
+ * This way we'll get messages from the driver or the validation layers.
+ */
+bool createDebugReportCallback(const VkInstance theInstance, const VkDebugReportFlagsEXT theFlags, const PFN_vkDebugReportCallbackEXT theCallback, VkDebugReportCallbackEXT & outDebugReportCallback)
+{
+	//Since this is an extension, we need to get the pointer to vkCreateDebugReportCallbackEXT at runtime
+	auto pfn_vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(theInstance, "vkCreateDebugReportCallbackEXT");
+
+	// Fill a VkDebugReportCallbackCreateInfoEXT struct with appropriate information
+	VkDebugReportCallbackCreateInfoEXT debugReportCallbackCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT,
+		.pNext = 0,
+		.flags = theFlags,
+		.pfnCallback = theCallback,
+	    .pUserData = nullptr,
+	};
+
+	// Call the function pointer we got before to create the VkDebugReportCallback:
+	VkDebugReportCallbackEXT myDebugReportCallback;
+	VkResult result = pfn_vkCreateDebugReportCallbackEXT(theInstance, &debugReportCallbackCreateInfo, nullptr, &myDebugReportCallback);
+	assert(result == VK_SUCCESS);
+
+	outDebugReportCallback = myDebugReportCallback;
+	return true;
+}
+
+
+
+/*
+ * Utility to destroy a DebugReportCallback
+ */
+void destroyDebugReportCallback(const VkInstance theInstance, const VkDebugReportCallbackEXT theDebugReportCallback)
+{
+	// Get the function pointer
+	auto pfn_vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(theInstance, "vkDestroyDebugReportCallbackEXT");
+	pfn_vkDestroyDebugReportCallbackEXT(theInstance, theDebugReportCallback, nullptr);
+}
+
+
+
 
 /*
  * Create a VkSurfaceKHR from the specified instance.
@@ -278,7 +327,7 @@ bool createVkSurfaceXCB(const VkInstance theInstance, xcb_connection_t * const x
 	 * Refer to the Window System Integration (WSI) chapter in the Vulkan Specification for more informations.
 	 */
 	VkXcbSurfaceCreateInfoKHR xlibSurfaceCreateInfo {
-		.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
+		.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
 		.pNext = nullptr,
 		.flags = 0,
 		.connection = xcbConnection,
@@ -1189,7 +1238,7 @@ int main(int argc, char* argv[])
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_threading");       // Enable all the standard validation layers that come with the VulkanSDK.
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
+	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
@@ -1206,6 +1255,13 @@ int main(int argc, char* argv[])
 	VkInstance myInstance;
 	boolResult = createVkInstance(layersNamesToEnable, extensionsNamesToEnable, myInstance);
 	assert(boolResult);
+
+	VkDebugReportCallbackEXT myDebugReportCallback;
+	createDebugReportCallback(myInstance,
+		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
+		debugCallback,
+		myDebugReportCallback
+	);
 
 	// Choose a physical device from the instance
 	VkPhysicalDevice myPhysicalDevice;
@@ -1324,10 +1380,10 @@ int main(int argc, char* argv[])
 			if (sdlEvent.type == SDL_QUIT) {
 				quit = true;
 			}
-			/*if (sdlEvent.type == SDL_KEYDOWN){
+			if (sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
 				quit = true;
 			}
-			if (sdlEvent.type == SDL_MOUSEBUTTONDOWN){
+			/*if (sdlEvent.type == SDL_MOUSEBUTTONDOWN){
 				quit = true;
 			}*/
 		}
@@ -1335,7 +1391,7 @@ int main(int argc, char* argv[])
 		if(!quit)
 			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence);
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(14));	// FIXME hack to not spin at 100% cpu.
+		//std::this_thread::sleep_for(std::chrono::milliseconds(14));	// FIXME hack to not spin at 100% cpu.
 	}
 
 	result = vkQueueWaitIdle(myQueue);
@@ -1361,6 +1417,7 @@ int main(int argc, char* argv[])
 	// device are destroyed when the device is destroyed.
 	vkDestroyDevice(myDevice, nullptr);
 	vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
+	destroyDebugReportCallback(myInstance, myDebugReportCallback);
 	vkDestroyInstance(myInstance, nullptr);
 
 	// Quit SDL
