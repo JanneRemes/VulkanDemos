@@ -1097,7 +1097,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
 
 
-	// FIXME temporary stuff for debugging
+	// --- FIXME temporary stuff for debugging
 	MyTimer myTimer;
 	VkFence myQueueCompleteFence, additionalFence;
 	VkFenceCreateInfo fenceCreateInfo = {
@@ -1137,7 +1137,6 @@ bool renderSingleFrame(const VkDevice theDevice,
 	vkResetFences(theDevice, 1, &thePresentFence);
 	myTimer.stop();
 	std::cout << "thePresentFence wait: " << myTimer.getMicroSec() << " us" << std::endl;
-
 
 	/*
 	 * Acquire the index of the next available swapchain image.
@@ -1227,7 +1226,6 @@ bool renderSingleFrame(const VkDevice theDevice,
 	// We wait until all the operations in the queue have terminated.
 	// In a "real" application, you'll just start rendering another frame,
 	// or run some other CPU code.
-
 /*
 	myTimer.start();
 	result = vkWaitForFences(theDevice, 1, &myQueueCompleteFence, VK_TRUE, UINT64_MAX);
@@ -1240,7 +1238,6 @@ bool renderSingleFrame(const VkDevice theDevice,
 
 	// Put a fence after all the commands in the queue and wait on it,
 	// i.e. do basically what vkQueueWaitIdle does.
-
 	vkQueueSubmit(theQueue, 0, nullptr, additionalFence);
 
 	myTimer.start();
@@ -1251,7 +1248,9 @@ bool renderSingleFrame(const VkDevice theDevice,
 	std::cout << "additionalFence wait: " << myTimer.getMicroSec() << " us" << std::endl;
 //*/
 
-
+	// Note! At least on Linux/Nvidia 355, it appears that
+	// vkQueueWaitIdle is implemented as a busy cycle,
+	// so it uses 100% of one cpu core.
 	//result = vkQueueWaitIdle(theQueue);
 	//assert(result == VK_SUCCESS);
 
