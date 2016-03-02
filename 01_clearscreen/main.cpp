@@ -264,8 +264,8 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 	memset(&dbg_info, 0, sizeof(dbg_info));
 	dbg_info.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT;
 	dbg_info.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT |
-					 VK_DEBUG_REPORT_WARNING_BIT_EXT |
-					 VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
+	                 VK_DEBUG_REPORT_WARNING_BIT_EXT |
+	                 VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
 	dbg_info.pfnCallback = debugCallback;
 	instanceCreateInfo.pNext = &dbg_info;
 
@@ -309,7 +309,7 @@ bool createDebugReportCallback(const VkInstance theInstance, const VkDebugReport
 		.pNext = 0,
 		.flags = theFlags,
 		.pfnCallback = theCallback,
-	    .pUserData = nullptr,
+		.pUserData = nullptr,
 	};
 
 	// Call the function pointer we got before to create the VkDebugReportCallback:
@@ -388,7 +388,7 @@ bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & out
 	// Query the number of physical devices awailable to the system
 	uint32_t physicalDevicesCount = 0;
 	result = vkEnumeratePhysicalDevices(theInstance, &physicalDevicesCount, nullptr);
-    assert(result == VK_SUCCESS);
+	assert(result == VK_SUCCESS);
 
 	if(physicalDevicesCount <= 0) {
 		std::cout << "!!! ERROR: no physical device found!" << std::endl;
@@ -398,7 +398,7 @@ bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & out
 	// Now query the pysical devices' actual data.
 	std::vector<VkPhysicalDevice> physicalDevicesVector(physicalDevicesCount);
 	result = vkEnumeratePhysicalDevices(theInstance, &physicalDevicesCount, physicalDevicesVector.data());
-    assert(result == VK_SUCCESS);
+	assert(result == VK_SUCCESS);
 
 	// For each physical device we query its properties and pretty-print them to the console.
 	int deviceIndex = 0;
@@ -682,8 +682,8 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 	 * TODO: document
 	 */
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
-    result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(thePhysicalDevice, theSurface, &surfaceCapabilities);
-    assert(result == VK_SUCCESS);
+	result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(thePhysicalDevice, theSurface, &surfaceCapabilities);
+	assert(result == VK_SUCCESS);
 
 
 	/*
@@ -756,7 +756,7 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 	const VkSwapchainCreateInfoKHR swapchainCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 		.pNext = nullptr,
-	    .flags = 0,
+		.flags = 0,
 		.surface = theSurface,
 		.minImageCount = desiredNumberOfSwapchainImages,
 		.imageFormat = surfaceFormat,
@@ -844,9 +844,9 @@ bool getSwapchainImagesAndViews(const VkDevice theDevice,
 				.levelCount = 1,
 				.baseArrayLayer = 0,
 				.layerCount = 1
-		    },
+			},
 			.viewType = VK_IMAGE_VIEW_TYPE_2D,
-		    .image = swapchainImagesVector[i],
+			.image = swapchainImagesVector[i],
 		};
 
 		result = vkCreateImageView(theDevice, &imageViewCreateInfo, nullptr, &swapchainImageViewsVector[i]);
@@ -877,7 +877,7 @@ bool createCommandPool(const VkDevice theDevice,
 		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = createFlagBits,
-	    .queueFamilyIndex = theQueueFamilyIndex,
+		.queueFamilyIndex = theQueueFamilyIndex,
 	};
 
 	VkCommandPool myCommandPool;
@@ -906,8 +906,8 @@ bool allocateCommandBuffer(const VkDevice theDevice,
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 		.pNext = nullptr,
 		.commandPool = theCommandPool,
-	    .level = theCommandBufferLevel,
-	    .commandBufferCount = 1
+		.level = theCommandBufferLevel,
+		.commandBufferCount = 1
 	};
 
 	VkCommandBuffer myCommandBuffer;
@@ -936,9 +936,9 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, con
 	 */
 	VkCommandBufferBeginInfo commandBufferBeginInfo = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-	    .pNext = nullptr,
-	    .flags = (VkCommandBufferUsageFlags)0,
-	    .pInheritanceInfo = nullptr,
+		.pNext = nullptr,
+		.flags = (VkCommandBufferUsageFlags)0,
+		.pInheritanceInfo = nullptr,
 	};
 
 	result = vkBeginCommandBuffer(theCommandBuffer, &commandBufferBeginInfo);
@@ -1007,9 +1007,9 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 	 */
 	VkCommandBufferBeginInfo commandBufferBeginInfo = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-	    .pNext = nullptr,
-	    .flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
-	    .pInheritanceInfo = nullptr,
+		.pNext = nullptr,
+		.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
+		.pInheritanceInfo = nullptr,
 	};
 
 	result = vkBeginCommandBuffer(theCommandBuffer, &commandBufferBeginInfo);
@@ -1025,7 +1025,7 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-	    .image = theCurrentSwapchainImage,
+		.image = theCurrentSwapchainImage,
 	};
 
 	/*
@@ -1203,12 +1203,12 @@ bool renderSingleFrame(const VkDevice theDevice,
 	VkPresentInfoKHR presentInfo = {
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.pNext = nullptr,
-	    .waitSemaphoreCount = 1,
-	    .pWaitSemaphores = &renderingCompletedSemaphore,
+		.waitSemaphoreCount = 1,
+		.pWaitSemaphores = &renderingCompletedSemaphore,
 		.swapchainCount = 1,
 		.pSwapchains = &theSwapchain,
 		.pImageIndices = &imageIndex,
-	    .pResults = nullptr,
+		.pResults = nullptr,
 	};
 
 	result = vkQueuePresentKHR(theQueue, &presentInfo);
