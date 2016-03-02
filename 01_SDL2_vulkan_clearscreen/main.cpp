@@ -23,6 +23,32 @@ static const char * applicationName = "mySdlVulkanTest";
 static const char * engineName = applicationName;
 
 
+/**
+ * Simple utility class to measure CPU time.
+ */
+class MyTimer
+{
+	std::chrono::high_resolution_clock::time_point startTime, stopTime;
+
+	public:
+		void start() {
+			startTime = std::chrono::high_resolution_clock::now();
+		}
+
+		void stop() {
+			stopTime = std::chrono::high_resolution_clock::now();
+		}
+
+		template<typename T>
+		long getAs() {
+			return std::chrono::duration_cast<T>(stopTime-startTime).count();
+		}
+
+		long getMicroSec() {
+			return getAs<std::chrono::microseconds>();
+		}
+};
+
 
 /**
  * debug callback; adapted from dbg_callback from vulkaninfo.c in the Vulkan SDK.
@@ -32,17 +58,17 @@ debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t src
              int32_t msgCode, const char *pLayerPrefix, const char *pMsg, void *pUserData)
 {
 	if (msgFlags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
-		std::cout << "---   ERR";
+		std::cout << "!!!  ERR";
 	else if (msgFlags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
-		std::cout << "!!!  WARN";
+		std::cout << "!!! WARN";
 	else if (msgFlags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT)
-		std::cout << "~~~  INFO";
+		std::cout << "~~~ INFO";
 	else if (msgFlags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)
-		std::cout << "~~~ DEBUG";
+		std::cout << "~~~ DEBG";
 	else if (msgFlags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
-		std::cout << "~~~ PERFW";
+		std::cout << "~~~ PERF";
 	else
-		std::cout << "~~~ ?WTF?";
+		std::cout << "??? WTF?";
 
 	std::cout << ": [" << std::setw(3) << pLayerPrefix << "]" << std::setw(3) << msgCode << ": " << pMsg << std::endl;
 
@@ -196,7 +222,7 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 		);
 
 		if(itr == layerPropertiesVector.end()) {
-			std::cout << "--- ERROR: Layer " << layerName << " was not found." << std::endl;
+			std::cout << "!!! ERROR: Layer " << layerName << " was not found." << std::endl;
 			return false;
 		}
 	}
@@ -220,7 +246,7 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 		);
 
 		if(itr == globalExtensionsVector.end()) {
-			std::cout << "--- ERROR: extension " << extName << " was not found in the global extensions vector." << std::endl;
+			std::cout << "!!! ERROR: extension " << extName << " was not found in the global extensions vector." << std::endl;
 			return false;
 		}
 	}
@@ -252,10 +278,10 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 	result = vkCreateInstance(&instanceCreateInfo, nullptr, &myInstance);
 
 	if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
-		std::cout << "--- ERROR: Cannot create Vulkan instance, VK_ERROR_INCOMPATIBLE_DRIVER." << std::endl;
+		std::cout << "!!! ERROR: Cannot create Vulkan instance, VK_ERROR_INCOMPATIBLE_DRIVER." << std::endl;
 		return false;
 	} else if(result != VK_SUCCESS) {
-		std::cout << "--- ERROR: Cannot create Vulkan instance, <error name here>" << std::endl;
+		std::cout << "!!! ERROR: Cannot create Vulkan instance, <error name here>" << std::endl;
 		return false;
 	}
 
@@ -365,7 +391,7 @@ bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & out
     assert(result == VK_SUCCESS);
 
 	if(physicalDevicesCount <= 0) {
-		std::cout << "--- ERROR: no physical device found!" << std::endl;
+		std::cout << "!!! ERROR: no physical device found!" << std::endl;
 		return false;
 	}
 
@@ -415,7 +441,7 @@ bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & out
 /**
  * Creates a VkDevice and its associated VkQueue.
  */
-bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const VkSurfaceKHR theSurface, VkDevice & outDevice, VkQueue & outQueue, uint32_t & outQueueFamilyIndex)
+bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const VkSurfaceKHR theSurface, const std::vector<const char *> & layersNamesToEnable, VkDevice & outDevice, VkQueue & outQueue, uint32_t & outQueueFamilyIndex)
 {
 	VkResult result;
 
@@ -451,7 +477,7 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 	}
 
 	if(!hasSwapchainExtension) {
-		std::cout << "--- ERROR: chosen physical device does not support VK_KHR_SWAPCHAIN_EXTENSION_NAME!" << std::endl;
+		std::cout << "!!! ERROR: chosen physical device does not support VK_KHR_SWAPCHAIN_EXTENSION_NAME!" << std::endl;
 		return false;
 	}
 
@@ -468,7 +494,7 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 	vkGetPhysicalDeviceQueueFamilyProperties(thePhysicalDevice, &queueFamilyPropertyCount, nullptr);
 
 	if(queueFamilyPropertyCount <= 0) {
-		std::cout << "--- ERROR: chosen physical device has no queue families!" << std::endl;
+		std::cout << "!!! ERROR: chosen physical device has no queue families!" << std::endl;
 		return false;
 	}
 
@@ -516,7 +542,7 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 	}
 
 	if(indexOfGraphicsQueueFamily < 0) {
-		std::cout << "--- ERROR: chosen physical device has no queue families that support both graphics and present!" << std::endl;
+		std::cout << "!!! ERROR: chosen physical device has no queue families that support both graphics and present!" << std::endl;
 		return false;
 	}
 
@@ -564,7 +590,6 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 	 */
 	VkDevice myDevice;
 
-	std::vector<const char *> layerNamesToEnable = { "VK_LAYER_LUNARG_standard_validation" };
 	std::vector<const char *> extensionNamesToEnable = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
 	VkDeviceCreateInfo deviceCreateInfo = {
@@ -573,8 +598,8 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 	    .flags = 0,
 	    .queueCreateInfoCount = (uint32_t)deviceQueueCreateInfoVector.size(),
 	    .pQueueCreateInfos = deviceQueueCreateInfoVector.data(),
-	    .enabledLayerCount = (uint32_t)layerNamesToEnable.size(),
-	    .ppEnabledLayerNames = layerNamesToEnable.data(),
+	    .enabledLayerCount = (uint32_t)layersNamesToEnable.size(),
+	    .ppEnabledLayerNames = layersNamesToEnable.data(),
 	    .enabledExtensionCount = (uint32_t)extensionNamesToEnable.size(),
 	    .ppEnabledExtensionNames = extensionNamesToEnable.data(),
 	    .pEnabledFeatures = &physicalDeviceFeatures
@@ -691,7 +716,7 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 	// Get the swapchain extent, and check if it's already filled or if we must manually set width and height.
 	VkExtent2D swapchainExtent = surfaceCapabilities.currentExtent;
 
-	if (swapchainExtent.width == (uint32_t)(-1)) // width and height are either both -1, or both not -1.
+	if(swapchainExtent.width == (uint32_t)(-1)) // width and height are either both -1, or both not -1.
 	{
 		// If the surface size is undefined, the size is set to
 		// the size of the images requested.
@@ -744,7 +769,7 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		.queueFamilyIndexCount = 0,
 		.pQueueFamilyIndices = nullptr,
-		.presentMode = VK_PRESENT_MODE_FIFO_KHR,	// TODO understand this parameter
+		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
 		.oldSwapchain = theOldSwapChain,  // if we are recreating a swapchain, we pass the old one here.
 		.clipped = true,
 	};
@@ -983,7 +1008,7 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 	VkCommandBufferBeginInfo commandBufferBeginInfo = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 	    .pNext = nullptr,
-	    .flags = (VkCommandBufferUsageFlags)0,
+	    .flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
 	    .pInheritanceInfo = nullptr,
 	};
 
@@ -1007,8 +1032,10 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 	 * Transition the swapchain image from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 	 * to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
 	 */
-	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	imageMemoryBarrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
 	vkCmdPipelineBarrier(theCommandBuffer,
 		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -1023,7 +1050,7 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 	VkClearColorValue clearColorValue;
 	VkImageSubresourceRange imageSubresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-	clearColorValue.float32[0] = clearColorR;	// FIXME it assumes the image is a floating point one. Is it always true?
+	clearColorValue.float32[0] = clearColorR;	// FIXME it assumes the image is a floating point one.
 	clearColorValue.float32[1] = clearColorG;
 	clearColorValue.float32[2] = clearColorB;
 	clearColorValue.float32[3] = 1.0f;	// alpha
@@ -1034,10 +1061,10 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 	 * Transition the swapchain image from VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
 	 * to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 	 */
-	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-	imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-	imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+	imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
 
 	vkCmdPipelineBarrier(theCommandBuffer,
 		VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
@@ -1056,7 +1083,7 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 
 
 /**
- * Render a single frame for this demo (i.e. we clear the screen).
+ * Renders a single frame for this demo (i.e. we clear the screen).
  * Returns true on success and false on failure.
  */
 bool renderSingleFrame(const VkDevice theDevice,
@@ -1069,39 +1096,63 @@ bool renderSingleFrame(const VkDevice theDevice,
 	VkResult result;
 	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
 
+
+	// FIXME temporary stuff for debugging
+	MyTimer myTimer;
+	VkFence myQueueCompleteFence, additionalFence;
+	VkFenceCreateInfo fenceCreateInfo = {
+	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+	    .pNext = nullptr,
+	    .flags = 0
+	};
+	result = vkCreateFence(theDevice, &fenceCreateInfo, nullptr, &myQueueCompleteFence);
+	assert(result == VK_SUCCESS);
+	result = vkCreateFence(theDevice, &fenceCreateInfo, nullptr, &additionalFence);
+	assert(result == VK_SUCCESS);
+	// ---
+
+
 	VkSemaphoreCreateInfo semaphoreCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
 	};
 
-	// We create a semaphore that will be signalled when a swapchain image is ready to use,
+	// Create a semaphore that will be signalled when a swapchain image is ready to use,
 	// and that will be waited upon by the queue before starting all the rendering/present commands.
 	result = vkCreateSemaphore(theDevice, &semaphoreCreateInfo, nullptr, &imageAcquiredSemaphore);
 	assert(result == VK_SUCCESS);
 
-	// We create another semaphore that will be signalled when the queue has terminated the rendering commands,
+	// Create another semaphore that will be signalled when the queue has terminated the rendering commands,
 	// and that will be waited upon by the actual present operation.
 	result = vkCreateSemaphore(theDevice, &semaphoreCreateInfo, nullptr, &renderingCompletedSemaphore);
 	assert(result == VK_SUCCESS);
 
-	/*
-	 * We wait on the fence so that we don't render frames too fast.
-	 * FIXME it doesn't seem to work (on linux/nvidia 355 at least).
-	 */
-	vkWaitForFences(theDevice, 1, &thePresentFence, VK_TRUE, UINT64_MAX);
-	vkResetFences(theDevice, 1, &thePresentFence);
 
 	/*
-	 * We acquire the index of the next available swapchain image.
+	 * Wait on the previous frame's fence so that we don't render frames too fast.
+	 */
+	myTimer.start();
+	vkWaitForFences(theDevice, 1, &thePresentFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(theDevice, 1, &thePresentFence);
+	myTimer.stop();
+	std::cout << "thePresentFence wait: " << myTimer.getMicroSec() << " us" << std::endl;
+
+
+	/*
+	 * Acquire the index of the next available swapchain image.
 	 */
 	uint32_t imageIndex = UINT32_MAX;
-	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, VK_NULL_HANDLE/*thePresentFence*/, &imageIndex);
+
+	myTimer.start();
+	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, thePresentFence, &imageIndex);
+	myTimer.stop();
+	std::cout << "imageIndex: " << imageIndex << " (" << myTimer.getMicroSec() << " us)" << std::endl;
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
 		// The swapchain is out of date (e.g. the window was resized) and must be recreated.
 		// In this demo we just "gracefully crash".
-		std::cout << "--- ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
+		std::cout << "!!! ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
 		// TODO tear down and recreate the swapchain and all its images from scratch.
 		return false;
 	} else if(result == VK_SUBOPTIMAL_KHR) {
@@ -1112,14 +1163,17 @@ bool renderSingleFrame(const VkDevice theDevice,
 		assert(result == VK_SUCCESS);
 	}
 
+
 	/*
-	 * We fill the present command buffer with... the present commands.
+	 * Fill the present command buffer with... the present commands.
 	 */
 	bool boolResult = fillPresentCommandBuffer(thePresentCmdBuffer, theSwapchainImagesVector[imageIndex], 1.0f, 0.2f, 0.2f);
 	assert(boolResult);
+	std::cout << "fill command buffer ok" << std::endl;
+
 
 	/*
-	 * We submit the present command buffer to the queue (this is the fun part!)
+	 * Submit the present command buffer to the queue (this is the fun part!)
 	 *
 	 * In the VkSubmitInfo we specify imageAcquiredSemaphore as a wait semaphore;
 	 * this way, the submitted command buffers won't start executing before the
@@ -1138,9 +1192,15 @@ bool renderSingleFrame(const VkDevice theDevice,
 		.pSignalSemaphores = &renderingCompletedSemaphore
 	};
 
-	result = vkQueueSubmit(theQueue, 1, &submitInfo, /*VK_NULL_HANDLE*/thePresentFence);
+	result = vkQueueSubmit(theQueue, 1, &submitInfo, myQueueCompleteFence);
 	assert(result == VK_SUCCESS);
+	std::cout << "queue submit ok" << std::endl;
 
+
+	/*
+	 * Present the rendered images,
+	 * so that they will be queued for display.
+	 */
 	VkPresentInfoKHR presentInfo = {
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.pNext = nullptr,
@@ -1155,18 +1215,48 @@ bool renderSingleFrame(const VkDevice theDevice,
 	result = vkQueuePresentKHR(theQueue, &presentInfo);
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
-		std::cout << "--- ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
+		std::cout << "!!! ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
 		return false;
 	} else if(result != VK_SUBOPTIMAL_KHR) {
 		assert(result == VK_SUCCESS);
 	}
 
+	std::cout << "queue present ok" << std::endl;
+
+
 	// We wait until all the operations in the queue have terminated.
 	// In a "real" application, you'll just start rendering another frame,
 	// or run some other CPU code.
-	result = vkQueueWaitIdle(theQueue);
-	assert(result == VK_SUCCESS);
 
+/*
+	myTimer.start();
+	result = vkWaitForFences(theDevice, 1, &myQueueCompleteFence, VK_TRUE, UINT64_MAX);
+	assert(result == VK_SUCCESS);
+	myTimer.stop();
+
+	std::cout << "myQueueCompleteFence wait: " << myTimer.getMicroSec() << " us" << std::endl;
+//*/
+
+
+	// Put a fence after all the commands in the queue and wait on it,
+	// i.e. do basically what vkQueueWaitIdle does.
+
+	vkQueueSubmit(theQueue, 0, nullptr, additionalFence);
+
+	myTimer.start();
+	result = vkWaitForFences(theDevice, 1, &additionalFence, VK_TRUE, UINT64_MAX);
+	assert(result == VK_SUCCESS);
+	myTimer.stop();
+
+	std::cout << "additionalFence wait: " << myTimer.getMicroSec() << " us" << std::endl;
+//*/
+
+
+	//result = vkQueueWaitIdle(theQueue);
+	//assert(result == VK_SUCCESS);
+
+	vkDestroyFence(theDevice, additionalFence, nullptr);
+	vkDestroyFence(theDevice, myQueueCompleteFence, nullptr);
 	vkDestroySemaphore(theDevice, imageAcquiredSemaphore, nullptr);
 	vkDestroySemaphore(theDevice, renderingCompletedSemaphore, nullptr);
 	return true;
@@ -1201,37 +1291,15 @@ int main(int argc, char* argv[])
 
 	if(SDL_GetWindowWMInfo(window, &info))
 	{
-		const char *subsystem = "an unknown system!";
-		switch(info.subsystem)
-		{
-			case SDL_SYSWM_UNKNOWN:   break;
-			case SDL_SYSWM_WINDOWS:   subsystem = "Microsoft Windows(TM)";  break;
-			case SDL_SYSWM_X11:       subsystem = "X Window System";        break;
-		#if SDL_VERSION_ATLEAST(2, 0, 3)
-			case SDL_SYSWM_WINRT:     subsystem = "WinRT";                  break;
-		#endif
-			case SDL_SYSWM_DIRECTFB:  subsystem = "DirectFB";               break;
-			case SDL_SYSWM_COCOA:     subsystem = "Apple OS X";             break;
-			case SDL_SYSWM_UIKIT:     subsystem = "UIKit";                  break;
-		#if SDL_VERSION_ATLEAST(2, 0, 2)
-			case SDL_SYSWM_WAYLAND:   subsystem = "Wayland";                break;
-			case SDL_SYSWM_MIR:       subsystem = "Mir";                    break;
-		#endif
-		#if SDL_VERSION_ATLEAST(2, 0, 4)
-			case SDL_SYSWM_ANDROID:   subsystem = "Android";                break;
-		#endif
+		// TODO add support for other windowing systems
+		if(info.subsystem != SDL_SYSWM_X11) {
+			std::cout << "!!! ERROR: Only X11 is supported in this demo for now." << std::endl;
+			exit(1);
 		}
-
-		std::cout << "~~~ This program is running SDL version "
-		          << (int)info.version.major << '.'
-		          << (int)info.version.minor << '.'
-		          << (int)info.version.patch << " on "
-		          << subsystem
-		          << std::endl;
 	}
 	else
 	{
-		std::cout << "--- ERROR: Couldn't get window information: " << SDL_GetError() << std::endl;
+		std::cout << "!!! ERROR: Couldn't get window information: " << SDL_GetError() << std::endl;
 		exit(1);
 	}
 
@@ -1249,7 +1317,7 @@ int main(int argc, char* argv[])
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
 	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
+	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
 	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
@@ -1265,6 +1333,7 @@ int main(int argc, char* argv[])
 	boolResult = createVkInstance(layersNamesToEnable, extensionsNamesToEnable, myInstance);
 	assert(boolResult);
 
+	// Initialize the debug callback
 	VkDebugReportCallbackEXT myDebugReportCallback;
 	createDebugReportCallback(myInstance,
 		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
@@ -1287,7 +1356,7 @@ int main(int argc, char* argv[])
 	VkDevice myDevice;
 	VkQueue myQueue;
 	uint32_t myQueueFamilyIndex;
-	boolResult = createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, myDevice, myQueue, myQueueFamilyIndex);
+	boolResult = createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, layersNamesToEnable, myDevice, myQueue, myQueueFamilyIndex);
 	assert(boolResult);
 
 	// Create a VkSwapchainKHR
@@ -1378,9 +1447,10 @@ int main(int argc, char* argv[])
 	 * We'll process the SDL's events, and then send the drawing/present commands.
 	 * (in this demo we just clear the screen and present)
 	 */
-
 	SDL_Event sdlEvent;
 	bool quit = false;
+
+	MyTimer drawTimer;
 
 	while(!quit)
 	{
@@ -1392,16 +1462,19 @@ int main(int argc, char* argv[])
 			if (sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
 				quit = true;
 			}
-			/*if (sdlEvent.type == SDL_MOUSEBUTTONDOWN){
-				quit = true;
-			}*/
 		}
 
-		if(!quit)
+		if(!quit) {
+			drawTimer.start();
 			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence);
+			drawTimer.stop();
 
-		//std::this_thread::sleep_for(std::chrono::milliseconds(14));	// FIXME hack to not spin at 100% cpu.
+			std::cout << "############ Draw time: " << std::setw(5) << drawTimer.getMicroSec() << " us ############\n" << std::endl;
+		}
+
+		//std::this_thread::sleep_for(std::chrono::milliseconds(10));	// FIXME hack to not spin at 100% cpu.
 	}
+
 
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
