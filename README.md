@@ -4,10 +4,13 @@ Vulkan Demos and Tutorials
 This repository is a collection of simple applications using the Vulkan API.
 The source code is heavily commented and structured so that a beginner can start learning the basics of Vulkan.
 
-The language used is C++11/14. The code is under the MIT license.
+The language used is C++11/14. All the code is available under the MIT license.
 
-Demo list
----------
+The code currently has been tested only on a Nvidia GTX 760 graphics card, using the experimental Vulkan drivers (Nvidia 355) on Linux Mint 17.3.
+The only windowing system currently supported is XCB; patches are welcome!
+
+Demo list:
+-----------
 
 - **01 - Clearscreen**
 
