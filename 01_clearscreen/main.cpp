@@ -55,6 +55,49 @@ debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t src
 
 
 /**
+ * Helper function that, given a VkResult, returns a string representation of its name.
+ * Useful for logging 'n' stuff.
+ */
+std::string VkResultToString(VkResult result)
+{
+	#define MAKE_CASE(resultcode) case resultcode : return std::string{ #resultcode };
+
+	switch(result)
+	{
+		MAKE_CASE(VK_SUCCESS)
+		MAKE_CASE(VK_NOT_READY)
+		MAKE_CASE(VK_TIMEOUT)
+		MAKE_CASE(VK_EVENT_SET)
+		MAKE_CASE(VK_EVENT_RESET)
+		MAKE_CASE(VK_INCOMPLETE)
+		MAKE_CASE(VK_ERROR_OUT_OF_HOST_MEMORY)
+		MAKE_CASE(VK_ERROR_OUT_OF_DEVICE_MEMORY)
+		MAKE_CASE(VK_ERROR_INITIALIZATION_FAILED)
+		MAKE_CASE(VK_ERROR_DEVICE_LOST)
+		MAKE_CASE(VK_ERROR_MEMORY_MAP_FAILED)
+		MAKE_CASE(VK_ERROR_LAYER_NOT_PRESENT)
+		MAKE_CASE(VK_ERROR_EXTENSION_NOT_PRESENT)
+		MAKE_CASE(VK_ERROR_FEATURE_NOT_PRESENT)
+		MAKE_CASE(VK_ERROR_INCOMPATIBLE_DRIVER)
+		MAKE_CASE(VK_ERROR_TOO_MANY_OBJECTS)
+		MAKE_CASE(VK_ERROR_FORMAT_NOT_SUPPORTED)
+		MAKE_CASE(VK_ERROR_SURFACE_LOST_KHR)
+		MAKE_CASE(VK_ERROR_NATIVE_WINDOW_IN_USE_KHR)
+		MAKE_CASE(VK_SUBOPTIMAL_KHR)
+		MAKE_CASE(VK_ERROR_OUT_OF_DATE_KHR)
+		MAKE_CASE(VK_ERROR_INCOMPATIBLE_DISPLAY_KHR)
+		MAKE_CASE(VK_ERROR_VALIDATION_FAILED_EXT)
+
+		default:
+		    return std::string{"<INVALID VKRETURN "} + std::to_string((int)result) + ">";
+	}
+
+	#undef MAKE_CASE
+}
+
+
+
+/**
  * Creates a VKInstance that has all the layer names in layersNamesToEnable
  * and all the extension names in extensionsNamesToEnable enabled.
  */
@@ -118,17 +161,19 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 		assert(result == VK_SUCCESS);
 
 		// Log all the layers on the console.
-		std::cout << "Found " << layerPropertiesVector.size() << " layers:" << std::endl;
+		std::cout << "--- Found " << layerPropertiesVector.size() << " instance layers:" << std::endl;
+		std::cout << "    |               Name               |   Spec   |   Impl   | Description" << std::endl;
+		std::cout << "    +----------------------------------+----------+----------+------------" << std::endl;
 
 		for(const auto & layer : layerPropertiesVector)
 		{
-			std::cout << "     Name        : " << layer.layerName             << std::endl;
-			std::cout << "     Spec.Version: " << layer.specVersion           << std::endl;
-			std::cout << "     Impl.Version: " << layer.implementationVersion << std::endl;
-			std::cout << "     Description : " << layer.description           << std::endl;
-			std::cout << std::endl;
+			std::cout <<  "    | " << std::left  << std::setw(33) << layer.layerName
+			          <<  "| " << std::right << std::setw(8) << layer.specVersion
+			          << " | " << std::setw(8) << layer.implementationVersion
+			          << " | " << layer.description
+			          << std::endl;
 		}
-		std::cout << "------------------------------------------------------------------\n" << std::endl;
+		std::cout << "    +----------------------------------+----------+----------+------------\n" << std::endl;
 	}
 
 
@@ -157,13 +202,22 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 		assert(result == VK_SUCCESS);
 
 		// Log them to console
-		std::cout << "Found " << extPropertiesVector.size() << " extensions for layer " << (layerName==nullptr ? "(null)" : layerName) << std::endl;
+		std::cout << "--- Found " << extPropertiesVector.size() << " extensions for layer " << (layerName==nullptr ? "(null)" : layerName) << std::endl;
 
-		for(const auto & ext : extPropertiesVector) {
-			std::cout << "     Name        : " << ext.extensionName << std::endl;
-			std::cout << "     Spec.Version: " << ext.specVersion   << std::endl;
-			std::cout << std::endl;
+		if(extPropertiesVector.size() > 0)
+		{
+			std::cout << "    |               Name               |  Spec  |" << std::endl;
+			std::cout << "    +----------------------------------+--------+" << std::endl;
+
+			for(const auto & ext : extPropertiesVector) {
+				std::cout << "    | " << std::left << std::setw(33) << ext.extensionName
+						  << "| " << std::right << std::setw(6) << ext.specVersion
+						  << " |"
+						  << std::endl;
+			}
+			std::cout << "    +----------------------------------+--------+\n";
 		}
+		std::cout << std::endl;
 
 		return extPropertiesVector;
 	};
@@ -175,7 +229,7 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 	for(const auto & layer : layerPropertiesVector)
 		queryAndPrintExtensions(layer.layerName);
 
-	std::cout << "------------------------------------------------------------------\n" << std::endl;
+	std::cout << std::endl;
 
 
 	/*
@@ -247,11 +301,8 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 	VkInstance myInstance;
 	result = vkCreateInstance(&instanceCreateInfo, nullptr, &myInstance);
 
-	if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
-		std::cout << "!!! ERROR: Cannot create Vulkan instance, VK_ERROR_INCOMPATIBLE_DRIVER." << std::endl;
-		return false;
-	} else if(result != VK_SUCCESS) {
-		std::cout << "!!! ERROR: Cannot create Vulkan instance, <error name here>" << std::endl;
+	if(result != VK_SUCCESS) {
+		std::cout << "!!! ERROR: Cannot create Vulkan instance, " << VkResultToString(result) << std::endl;
 		return false;
 	}
 
@@ -377,12 +428,12 @@ bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & out
 		VkPhysicalDeviceProperties phyDevProperties;
 		vkGetPhysicalDeviceProperties(phyDev, &phyDevProperties);
 
-		std::cout << "Found physical device: " << phyDevProperties.deviceName << " (index: " << (deviceIndex++) << ")" << std::endl;
-		std::cout << "    apiVersion: " << phyDevProperties.apiVersion << std::endl;
-		std::cout << " driverVersion: " << phyDevProperties.driverVersion << std::endl;
-		std::cout << "      vendorID: " << phyDevProperties.vendorID << std::endl;
-		std::cout << "      deviceID: " << phyDevProperties.deviceID << std::endl;
-		std::cout << "    deviceType: (" << phyDevProperties.deviceType << ") ";
+		std::cout << "--- Found physical device: " << phyDevProperties.deviceName << " (index: " << (deviceIndex++) << ")" << std::endl;
+		std::cout << "        apiVersion: " << phyDevProperties.apiVersion << std::endl;
+		std::cout << "     driverVersion: " << phyDevProperties.driverVersion << std::endl;
+		std::cout << "          vendorID: " << phyDevProperties.vendorID << std::endl;
+		std::cout << "          deviceID: " << phyDevProperties.deviceID << std::endl;
+		std::cout << "        deviceType: (" << phyDevProperties.deviceType << ") ";
 		switch(phyDevProperties.deviceType) {
 			case VK_PHYSICAL_DEVICE_TYPE_OTHER:          std::cout << "OTHER";          break;
 			case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: std::cout << "INTEGRATED_GPU"; break;
@@ -480,8 +531,8 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 		result = vkGetPhysicalDeviceSurfaceSupportKHR(thePhysicalDevice, (uint32_t)queueFamilyIndex, theSurface, &doesItSupportPresent);
 		assert(result == VK_SUCCESS);
 
-		std::cout << "Properties for queue family " << queueFamilyIndex << std::endl;
-		std::cout << "                    queueFlags:";
+		std::cout << "--- Properties for queue family " << queueFamilyIndex << std::endl;
+		std::cout << "                     queueFlags:";
 
 		if(queueFamProp.queueFlags & VK_QUEUE_GRAPHICS_BIT)
 			std::cout << " GRAPHICS";
@@ -493,14 +544,14 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 			std::cout << " SPARSE_BINDING";
 
 		std::cout << '\n';
-		std::cout << "                    queueCount: " << queueFamProp.queueCount << std::endl;
-		std::cout << "            timestampValidBits: " << queueFamProp.timestampValidBits << std::endl;
-		std::cout << "   minImageTransferGranularity: " << queueFamProp.minImageTransferGranularity.width
+		std::cout << "                     queueCount: " << queueFamProp.queueCount << std::endl;
+		std::cout << "             timestampValidBits: " << queueFamProp.timestampValidBits << std::endl;
+		std::cout << "    minImageTransferGranularity: " << queueFamProp.minImageTransferGranularity.width
 		                                        << ", " << queueFamProp.minImageTransferGranularity.height
 		                                        << ", " << queueFamProp.minImageTransferGranularity.depth
 		                                        << std::endl;
 
-		std::cout << "          doesItSupportPresent: " << std::boolalpha << bool(doesItSupportPresent) << std::endl;
+		std::cout << "       Does it support present?: " << std::boolalpha << bool(doesItSupportPresent) << std::endl;
 
 		// Select queue family if it supports all the requisites.
 		if(bool(queueFamProp.queueFlags & VK_QUEUE_GRAPHICS_BIT) && doesItSupportPresent == VK_TRUE) {
