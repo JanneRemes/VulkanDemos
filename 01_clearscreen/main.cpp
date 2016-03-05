@@ -12,6 +12,7 @@
 #include <chrono>
 #include <thread>
 #include <cassert>
+#include <climits>
 
 static int windowWidth = 800;
 static int windowHeight = 600;
@@ -1406,19 +1407,32 @@ int main(int argc, char* argv[])
 	assert(result == VK_SUCCESS);
 
 
-	std::cout << "---- Rendering Start ----" << std::endl;
+	std::cout << "\n---- Rendering Start ----" << std::endl;
 
 	/*
 	 * Now that initialization is complete, we can start our program's event loop!
 	 *
 	 * We'll process the SDL's events, and then send the drawing/present commands.
-	 * (in this demo we just clear the screen and present)
+	 * (in this demo we just clear the screen and present).
+	 *
+	 * Just for fun, we also collect and print some statistics about the average time
+	 * it takes to draw a single frame.
 	 */
 	SDL_Event sdlEvent;
 	bool quit = false;
 
+	// Just some variables to have some frame statistics
+	long frameNumber = 0;
+	long frameMaxTime = LONG_MIN;
+	long frameMinTime = LONG_MAX;
+	long frameAvgTimeSum = 0;
+	long frameAvgTimeSumSquare = 0;
+	const long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
+
+	// The main event/render loop.
 	while(!quit)
 	{
+		// Process events for this frame
 		while(SDL_PollEvent(&sdlEvent))
 		{
 			if (sdlEvent.type == SDL_QUIT) {
@@ -1429,17 +1443,42 @@ int main(int argc, char* argv[])
 			}
 		}
 
+		// Rendering code
 		if(!quit)
 		{
+			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
 			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence, 0.0f, 1.0f, 0.5f);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
+			// Compute frame time statistics
 			auto elapsedTimeUs = std::chrono::duration_cast<std::chrono::microseconds>(renderStopTime - renderStartTime).count();
 
-			std::cout << " Frame time: " << std::setw(5) << elapsedTimeUs << " us" << std::endl;
-		}
+			frameMaxTime = std::max(frameMaxTime, elapsedTimeUs);
+			frameMinTime = std::min(frameMinTime, elapsedTimeUs);
+			frameAvgTimeSum += elapsedTimeUs;
+			frameAvgTimeSumSquare += elapsedTimeUs*elapsedTimeUs;
 
+			// Print statistics if necessary
+			if(frameNumber % FRAMES_PER_STAT == 0)
+			{
+				auto average = frameAvgTimeSum/FRAMES_PER_STAT;
+				auto stddev = std::sqrt(frameAvgTimeSumSquare/FRAMES_PER_STAT - average*average);
+				std::cout << "Frame time: average " << std::setw(6) << average
+				          << " us, maximum " << std::setw(6) << frameMaxTime
+				          << " us, minimum " << std::setw(6) << frameMinTime
+				          << " us, stddev " << (long)stddev
+				          << " (" << std::fixed << std::setprecision(2) << (stddev/average * 100.0f) << "%)"
+				          << std::endl;
+
+				frameMaxTime = LONG_MIN;
+				frameMinTime = LONG_MAX;
+				frameAvgTimeSum = 0;
+				frameAvgTimeSumSquare = 0;
+			}
+
+			frameNumber++;
+		}
 	}
 
 
