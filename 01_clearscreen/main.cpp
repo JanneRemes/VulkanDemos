@@ -16,7 +16,7 @@
 
 static int windowWidth = 800;
 static int windowHeight = 600;
-static const char * applicationName = "mySdlVulkanTest";
+static const char * applicationName = "SdlVulkanDemo_01_clearscreen";
 static const char * engineName = applicationName;
 
 
@@ -1417,17 +1417,28 @@ int main(int argc, char* argv[])
 	 *
 	 * Just for fun, we also collect and print some statistics about the average time
 	 * it takes to draw a single frame.
+	 * We also clear the screen to different colors for various frames, so that we
+	 * see something changing on the screen.
 	 */
 	SDL_Event sdlEvent;
 	bool quit = false;
 
-	// Just some variables to have some frame statistics
+	// Just some variables for frame statistics and different colors.
 	long frameNumber = 0;
 	long frameMaxTime = LONG_MIN;
 	long frameMinTime = LONG_MAX;
 	long frameAvgTimeSum = 0;
 	long frameAvgTimeSumSquare = 0;
-	const long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
+	constexpr long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
+
+	constexpr int MAX_COLORS = 4;
+	constexpr int FRAMES_PER_COLOR = 120;	// How many frames to show each color.
+	static float screenColors[MAX_COLORS][3] = {
+	    {1.0f, 0.2f, 0.2f},
+	    {0.0f, 0.9f, 0.2f},
+	    {0.0f, 0.2f, 1.0f},
+	    {1.0f, 0.9f, 0.2f},
+	};
 
 	// The main event/render loop.
 	while(!quit)
@@ -1446,9 +1457,14 @@ int main(int argc, char* argv[])
 		// Rendering code
 		if(!quit)
 		{
+			// Render various colors
+			float colR = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][0];
+			float colG = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][1];
+			float colB = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][2];
+
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence, 0.0f, 1.0f, 0.5f);
+			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence, colR, colG, colB);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
