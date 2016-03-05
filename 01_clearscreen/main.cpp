@@ -1,6 +1,9 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
 
+#define VK_USE_PLATFORM_XCB_KHR
+#include <vulkan/vulkan.h>
+#include <X11/Xlib-xcb.h> // for XGetXCBConnection()
 
 #include <iostream>
 #include <iomanip>
@@ -10,44 +13,10 @@
 #include <thread>
 #include <cassert>
 
-#include <X11/Xlib-xcb.h> // for XGetXCBConnection()
-
-//#define VK_PROTOTYPES
-#define VK_USE_PLATFORM_XCB_KHR
-
-#include <vulkan/vulkan.h>
-
 static int windowWidth = 800;
 static int windowHeight = 600;
 static const char * applicationName = "mySdlVulkanTest";
 static const char * engineName = applicationName;
-
-
-/**
- * Simple utility class to measure CPU time.
- */
-class MyTimer
-{
-	std::chrono::high_resolution_clock::time_point startTime, stopTime;
-
-	public:
-		void start() {
-			startTime = std::chrono::high_resolution_clock::now();
-		}
-
-		void stop() {
-			stopTime = std::chrono::high_resolution_clock::now();
-		}
-
-		template<typename T>
-		long getAs() {
-			return std::chrono::duration_cast<T>(stopTime-startTime).count();
-		}
-
-		long getMicroSec() {
-			return getAs<std::chrono::microseconds>();
-		}
-};
 
 
 /**
@@ -1091,25 +1060,11 @@ bool renderSingleFrame(const VkDevice theDevice,
                        const VkSwapchainKHR theSwapchain,
                        const VkCommandBuffer thePresentCmdBuffer,
                        const std::vector<VkImage> & theSwapchainImagesVector,
-                       const VkFence thePresentFence)
+                       const VkFence thePresentFence,
+                       const float clearColorR, const float clearColorG, const float clearColorB)
 {
 	VkResult result;
 	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
-
-
-	// --- FIXME temporary stuff for debugging
-	MyTimer myTimer;
-	VkFence myQueueCompleteFence, additionalFence;
-	VkFenceCreateInfo fenceCreateInfo = {
-	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-	    .pNext = nullptr,
-	    .flags = 0
-	};
-	result = vkCreateFence(theDevice, &fenceCreateInfo, nullptr, &myQueueCompleteFence);
-	assert(result == VK_SUCCESS);
-	result = vkCreateFence(theDevice, &fenceCreateInfo, nullptr, &additionalFence);
-	assert(result == VK_SUCCESS);
-	// ---
 
 
 	VkSemaphoreCreateInfo semaphoreCreateInfo = {
@@ -1120,6 +1075,9 @@ bool renderSingleFrame(const VkDevice theDevice,
 
 	// Create a semaphore that will be signalled when a swapchain image is ready to use,
 	// and that will be waited upon by the queue before starting all the rendering/present commands.
+	//
+	// Note: in a "real" application, you would create the semaphore only once at program initialization,
+	// and not every frame (for performance reasons).
 	result = vkCreateSemaphore(theDevice, &semaphoreCreateInfo, nullptr, &imageAcquiredSemaphore);
 	assert(result == VK_SUCCESS);
 
@@ -1132,21 +1090,15 @@ bool renderSingleFrame(const VkDevice theDevice,
 	/*
 	 * Wait on the previous frame's fence so that we don't render frames too fast.
 	 */
-	myTimer.start();
 	vkWaitForFences(theDevice, 1, &thePresentFence, VK_TRUE, UINT64_MAX);
 	vkResetFences(theDevice, 1, &thePresentFence);
-	myTimer.stop();
-	std::cout << "thePresentFence wait: " << myTimer.getMicroSec() << " us" << std::endl;
+
 
 	/*
 	 * Acquire the index of the next available swapchain image.
 	 */
 	uint32_t imageIndex = UINT32_MAX;
-
-	myTimer.start();
 	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, thePresentFence, &imageIndex);
-	myTimer.stop();
-	std::cout << "imageIndex: " << imageIndex << " (" << myTimer.getMicroSec() << " us)" << std::endl;
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
 		// The swapchain is out of date (e.g. the window was resized) and must be recreated.
@@ -1154,21 +1106,21 @@ bool renderSingleFrame(const VkDevice theDevice,
 		std::cout << "!!! ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
 		// TODO tear down and recreate the swapchain and all its images from scratch.
 		return false;
-	} else if(result == VK_SUBOPTIMAL_KHR) {
+	}
+	else if(result == VK_SUBOPTIMAL_KHR) {
 		// The swapchain is not as optimal as it could be, but the platform's
 		// presentation engine will still present the image correctly.
 		std::cout << "~~~ Swapchain is suboptimal." << std::endl;
-	} else {
-		assert(result == VK_SUCCESS);
 	}
+	else
+		assert(result == VK_SUCCESS);
 
 
 	/*
 	 * Fill the present command buffer with... the present commands.
 	 */
-	bool boolResult = fillPresentCommandBuffer(thePresentCmdBuffer, theSwapchainImagesVector[imageIndex], 1.0f, 0.2f, 0.2f);
+	bool boolResult = fillPresentCommandBuffer(thePresentCmdBuffer, theSwapchainImagesVector[imageIndex], clearColorR, clearColorG, clearColorB);
 	assert(boolResult);
-	std::cout << "fill command buffer ok" << std::endl;
 
 
 	/*
@@ -1191,14 +1143,13 @@ bool renderSingleFrame(const VkDevice theDevice,
 		.pSignalSemaphores = &renderingCompletedSemaphore
 	};
 
-	result = vkQueueSubmit(theQueue, 1, &submitInfo, myQueueCompleteFence);
+	result = vkQueueSubmit(theQueue, 1, &submitInfo, VK_NULL_HANDLE);
 	assert(result == VK_SUCCESS);
-	std::cout << "queue submit ok" << std::endl;
 
 
 	/*
-	 * Present the rendered images,
-	 * so that they will be queued for display.
+	 * Present the rendered image,
+	 * so that it will be queued for display.
 	 */
 	VkPresentInfoKHR presentInfo = {
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -1216,46 +1167,60 @@ bool renderSingleFrame(const VkDevice theDevice,
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
 		std::cout << "!!! ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
 		return false;
-	} else if(result != VK_SUBOPTIMAL_KHR) {
+	}
+	else if(result != VK_SUBOPTIMAL_KHR)
 		assert(result == VK_SUCCESS);
+
+
+	/*
+	 * The end!
+	 * ... or not?
+	 *
+	 * Unfortunately, on current experimental Nvidia drivers (as of 2016-03-05),
+	 * vkAcquireNextImageKHR is broken in that it never waits for a new image to be available;
+	 * this means that we can't use it to throttle our rendering rate.
+	 * Moreover, at least on Linux/X11, this causes the system to hang up unresponsive;
+	 * for more informations, check [1] and [2].
+	 *
+	 * To slow down rendering, we can wait for the queue to finish all of its work,
+	 * for example calling vkQueueWaitIdle(theQueue); unfortunately, on Nvidia drivers,
+	 * vkQueueWaitIdle is implemented as a busy cycle, so a single CPU core will constantly
+	 * be at 100% usage. Not that is a bug or a problem (you tipically won't be calling
+	 * vkQueueWaitIdle every frame), but it's a bit annoying.
+	 *
+	 * To solve this "problem", we "simulate" vkQueueWaitIdle using a VkFence.
+	 * The way it works is that we call vkQueueSubmit, but we don't pass any command buffers:
+	 * we just want to be able to signal our fence.
+	 * We then immediately wait on the same fence; this puts the CPU thread to sleep,
+	 * and prevents it from spinning at 100% usage.
+	 *
+	 * [1] https://vulkan.lunarg.com/app/issues/56ca3a477ef24d0001787448
+	 * [2] https://www.reddit.com/r/vulkan/comments/48oe7b/problems_with_fences_vkacquirenextimagekhr_and/?ref=share&ref_source=link
+	 */
+	{
+		VkFence myQueueCompleteFence;
+		VkFenceCreateInfo fenceCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0
+		};
+		// Note: creating/destroying a VkFence is not something you would want to do
+		// every frame; in this demo we do it to simplify code, and because this
+		// is just a "dirty hack" to work on experimental Nvidia drivers that will
+		// probably be removed in the near future.
+		result = vkCreateFence(theDevice, &fenceCreateInfo, nullptr, &myQueueCompleteFence);
+		assert(result == VK_SUCCESS);
+
+		vkQueueSubmit(theQueue, 0, nullptr, myQueueCompleteFence);	// We just want to signal the fence.
+
+		result = vkWaitForFences(theDevice, 1, &myQueueCompleteFence, VK_TRUE, UINT64_MAX);
+		assert(result == VK_SUCCESS);
+
+		vkDestroyFence(theDevice, myQueueCompleteFence, nullptr);
 	}
 
-	std::cout << "queue present ok" << std::endl;
 
-
-	// We wait until all the operations in the queue have terminated.
-	// In a "real" application, you'll just start rendering another frame,
-	// or run some other CPU code.
-/*
-	myTimer.start();
-	result = vkWaitForFences(theDevice, 1, &myQueueCompleteFence, VK_TRUE, UINT64_MAX);
-	assert(result == VK_SUCCESS);
-	myTimer.stop();
-
-	std::cout << "myQueueCompleteFence wait: " << myTimer.getMicroSec() << " us" << std::endl;
-//*/
-
-
-	// Put a fence after all the commands in the queue and wait on it,
-	// i.e. do basically what vkQueueWaitIdle does.
-	vkQueueSubmit(theQueue, 0, nullptr, additionalFence);
-
-	myTimer.start();
-	result = vkWaitForFences(theDevice, 1, &additionalFence, VK_TRUE, UINT64_MAX);
-	assert(result == VK_SUCCESS);
-	myTimer.stop();
-
-	std::cout << "additionalFence wait: " << myTimer.getMicroSec() << " us" << std::endl;
-//*/
-
-	// Note! At least on Linux/Nvidia 355, it appears that
-	// vkQueueWaitIdle is implemented as a busy cycle,
-	// so it uses 100% of one cpu core.
-	//result = vkQueueWaitIdle(theQueue);
-	//assert(result == VK_SUCCESS);
-
-	vkDestroyFence(theDevice, additionalFence, nullptr);
-	vkDestroyFence(theDevice, myQueueCompleteFence, nullptr);
+	// Cleanup
 	vkDestroySemaphore(theDevice, imageAcquiredSemaphore, nullptr);
 	vkDestroySemaphore(theDevice, renderingCompletedSemaphore, nullptr);
 	return true;
@@ -1404,6 +1369,7 @@ int main(int argc, char* argv[])
 	result = vkCreateFence(myDevice, &fenceCreateInfo, nullptr, &myPresentFence);
 	assert(result == VK_SUCCESS);
 
+
 	/*
 	 * We completed the creation and allocation of all the resources we need!
 	 * Now it's time to build and submit the first command buffer that will contain
@@ -1440,6 +1406,8 @@ int main(int argc, char* argv[])
 	assert(result == VK_SUCCESS);
 
 
+	std::cout << "---- Rendering Start ----" << std::endl;
+
 	/*
 	 * Now that initialization is complete, we can start our program's event loop!
 	 *
@@ -1448,8 +1416,6 @@ int main(int argc, char* argv[])
 	 */
 	SDL_Event sdlEvent;
 	bool quit = false;
-
-	MyTimer drawTimer;
 
 	while(!quit)
 	{
@@ -1463,30 +1429,34 @@ int main(int argc, char* argv[])
 			}
 		}
 
-		if(!quit) {
-			drawTimer.start();
-			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence);
-			drawTimer.stop();
+		if(!quit)
+		{
+			auto renderStartTime = std::chrono::high_resolution_clock::now();
+			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence, 0.0f, 1.0f, 0.5f);
+			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
-			std::cout << "############ Draw time: " << std::setw(5) << drawTimer.getMicroSec() << " us ############\n" << std::endl;
+			auto elapsedTimeUs = std::chrono::duration_cast<std::chrono::microseconds>(renderStopTime - renderStartTime).count();
+
+			std::cout << " Frame time: " << std::setw(5) << elapsedTimeUs << " us" << std::endl;
 		}
 
-		//std::this_thread::sleep_for(std::chrono::milliseconds(10));	// FIXME hack to not spin at 100% cpu.
 	}
 
-
-	result = vkQueueWaitIdle(myQueue);
-	assert(result == VK_SUCCESS);
 
 	/*
 	 * Deinitialization
 	 */
+	// We wait for pending operations to complete before starting to destroy stuff.
+	result = vkQueueWaitIdle(myQueue);
+	assert(result == VK_SUCCESS);
+
 	vkDestroyFence(myDevice, myPresentFence, nullptr);
 
 	// You don't need to call vkFreeCommandBuffers for all command buffers; all command buffers
 	// allocated from a command pool are released when the command pool is destroyed.
 	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
 
+	// Destroy the swapchain image's views.
 	for(auto imgView : mySwapchainImageViewsVector)
 		vkDestroyImageView(myDevice, imgView, nullptr);
 
