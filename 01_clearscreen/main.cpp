@@ -14,11 +14,6 @@
 #include <cassert>
 #include <climits>
 
-static int windowWidth = 800;
-static int windowHeight = 600;
-static const char * applicationName = "SdlVulkanDemo_01_clearscreen";
-static const char * engineName = applicationName;
-
 
 /**
  * debug callback; adapted from dbg_callback from vulkaninfo.c in the Vulkan SDK.
@@ -43,7 +38,7 @@ debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t src
 	std::cout << ": [" << std::setw(3) << pLayerPrefix << "]" << std::setw(3) << msgCode << ": " << pMsg << std::endl;
 
 	/*
-	* false indicates that layer should not bail-out of an
+	* False indicates that layer should not bail-out of an
 	* API call that had validation failures. This may mean that the
 	* app dies inside the driver due to invalid parameter(s).
 	* That's what would happen without validation layers, so we'll
@@ -58,7 +53,7 @@ debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t src
  * Helper function that, given a VkResult, returns a string representation of its name.
  * Useful for logging 'n' stuff.
  */
-std::string VkResultToString(VkResult result)
+std::string VkResultToString(const VkResult result)
 {
 	#define MAKE_CASE(resultcode) case resultcode : return std::string{ #resultcode };
 
@@ -98,10 +93,14 @@ std::string VkResultToString(VkResult result)
 
 
 /**
- * Creates a VKInstance that has all the layer names in layersNamesToEnable
- * and all the extension names in extensionsNamesToEnable enabled.
+ * Creates a VKInstance that has all the layer names in layerNamesToEnable
+ * and all the extension names in extensionNamesToEnable enabled.
  */
-bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, const std::vector<const char *> & extensionsNamesToEnable, VkInstance & outInstance)
+bool createVkInstance(const std::vector<const char *> & layerNamesToEnable,
+                      const std::vector<const char *> & extensionNamesToEnable,
+                      const char * applicationName,
+                      const char * engineName,
+                      VkInstance & outInstance)
 {
 	VkResult result;
 
@@ -118,7 +117,7 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 		.pEngineName = engineName,              // Engine name (UTF8, null terminated string)
 		.engineVersion = 1,                     // Engine version
 		.apiVersion = VK_API_VERSION,           // Vulkan version the application expects to use;
-		                                        // if = 0, this field is ignored, otherwise, if the implementation
+		                                        // if = 0, this field is ignored; otherwise, if the implementation
 		                                        // doesn't support the specified version, VK_ERROR_INCOMPATIBLE_DRIVER is returned.
 	};
 
@@ -137,6 +136,10 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 		.ppEnabledExtensionNames = nullptr,     // Pointer to array of #enabledExtensionCount strings containing the names of the extensions to enable
 	};
 
+	instanceCreateInfo.enabledLayerCount       = (uint32_t)layerNamesToEnable.size();
+	instanceCreateInfo.ppEnabledLayerNames     = layerNamesToEnable.data();
+	instanceCreateInfo.enabledExtensionCount   = (uint32_t)extensionNamesToEnable.size();
+	instanceCreateInfo.ppEnabledExtensionNames = extensionNamesToEnable.data();
 
 	/*
 	 * Layers:
@@ -237,7 +240,7 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 	 * Check if all the layer names we want to enable are present
 	 * in the VkLayerProperties we collected before in layerPropertiesVector.
 	 */
-	for(const auto & layerName : layersNamesToEnable)
+	for(const auto & layerName : layerNamesToEnable)
 	{
 		auto itr = std::find_if(layerPropertiesVector.begin(), layerPropertiesVector.end(),
 			[&](const VkLayerProperties & extProp){
@@ -251,17 +254,13 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 		}
 	}
 
-	// We pass the pointer and size of the extension names vector to the VkInstanceCreateInfo struct
-	instanceCreateInfo.enabledLayerCount = (uint32_t)layersNamesToEnable.size();
-	instanceCreateInfo.ppEnabledLayerNames = layersNamesToEnable.data();
-
 
 	/*
 	 * Extensions enable:
 	 * Check if all the extension names we want to enable are present
 	 * in the VkExtensionProperties we collected before in globalExtensionsVector.
 	 */
-	for(const auto & extName : extensionsNamesToEnable)
+	for(const auto & extName : extensionNamesToEnable)
 	{
 		auto itr = std::find_if(globalExtensionsVector.begin(), globalExtensionsVector.end(),
 			[&](const VkExtensionProperties & extProp){
@@ -274,24 +273,6 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 			return false;
 		}
 	}
-
-	// We pass the pointer and size of the extension names vector to the VkInstanceCreateInfo struct
-	instanceCreateInfo.enabledExtensionCount = (uint32_t)extensionsNamesToEnable.size();
-	instanceCreateInfo.ppEnabledExtensionNames = extensionsNamesToEnable.data();
-
-
-	/*
-	 * Debug Extension:
-	 * Can't find documentation for this; this code is taken from vulkaninfo.c in the Vulkan SDK.
-	 */
-	VkDebugReportCallbackCreateInfoEXT dbg_info;
-	memset(&dbg_info, 0, sizeof(dbg_info));
-	dbg_info.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT;
-	dbg_info.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT |
-	                 VK_DEBUG_REPORT_WARNING_BIT_EXT |
-	                 VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
-	dbg_info.pfnCallback = debugCallback;
-	instanceCreateInfo.pNext = &dbg_info;
 
 
 	/*
@@ -315,13 +296,16 @@ bool createVkInstance(const std::vector<const char *> & layersNamesToEnable, con
 
 
 /*
- * Create a Debug Report callback on the specified Instance.
+ * Create a VkDebugReportCallbackEXT on the specified Instance.
  *
  * This way we'll get messages from the driver or the validation layers.
  */
-bool createDebugReportCallback(const VkInstance theInstance, const VkDebugReportFlagsEXT theFlags, const PFN_vkDebugReportCallbackEXT theCallback, VkDebugReportCallbackEXT & outDebugReportCallback)
+bool createDebugReportCallback(const VkInstance theInstance,
+                               const VkDebugReportFlagsEXT theFlags,
+                               const PFN_vkDebugReportCallbackEXT theCallback,
+                               VkDebugReportCallbackEXT & outDebugReportCallback)
 {
-	//Since this is an extension, we need to get the pointer to vkCreateDebugReportCallbackEXT at runtime
+	// Since this is an extension, we need to get the pointer to vkCreateDebugReportCallbackEXT at runtime
 	auto pfn_vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(theInstance, "vkCreateDebugReportCallbackEXT");
 
 	// Fill a VkDebugReportCallbackCreateInfoEXT struct with appropriate information
@@ -345,11 +329,11 @@ bool createDebugReportCallback(const VkInstance theInstance, const VkDebugReport
 
 
 /*
- * Utility to destroy a DebugReportCallback
+ * Utility to destroy a VkDebugReportCallbackEXT
  */
 void destroyDebugReportCallback(const VkInstance theInstance, const VkDebugReportCallbackEXT theDebugReportCallback)
 {
-	// Get the function pointer
+	// Get the function pointer and call the function.
 	auto pfn_vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(theInstance, "vkDestroyDebugReportCallbackEXT");
 	pfn_vkDestroyDebugReportCallbackEXT(theInstance, theDebugReportCallback, nullptr);
 }
@@ -398,7 +382,7 @@ bool createVkSurfaceXCB(const VkInstance theInstance, xcb_connection_t * const x
  * ideally, we would query the capabilities of each phydev and choose the
  * one best suited for our needs).
  */
-bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & outPhysicalDevice)
+bool chooseVkPhysicalDevice(const VkInstance theInstance, const unsigned int deviceToUseIndex, VkPhysicalDevice & outPhysicalDevice)
 {
 	VkResult result;
 
@@ -406,20 +390,14 @@ bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & out
 	 * Here we query the Vulkan Implementation for the physical devices
 	 * available in the system. We then log their information to the console.
 	 */
-	// Query the number of physical devices awailable to the system
 	uint32_t physicalDevicesCount = 0;
 	result = vkEnumeratePhysicalDevices(theInstance, &physicalDevicesCount, nullptr);
-	assert(result == VK_SUCCESS);
+	assert(result == VK_SUCCESS && physicalDevicesCount > 0);
 
-	if(physicalDevicesCount <= 0) {
-		std::cout << "!!! ERROR: no physical device found!" << std::endl;
-		return false;
-	}
-
-	// Now query the pysical devices' actual data.
 	std::vector<VkPhysicalDevice> physicalDevicesVector(physicalDevicesCount);
 	result = vkEnumeratePhysicalDevices(theInstance, &physicalDevicesCount, physicalDevicesVector.data());
 	assert(result == VK_SUCCESS);
+
 
 	// For each physical device we query its properties and pretty-print them to the console.
 	int deviceIndex = 0;
@@ -429,11 +407,12 @@ bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & out
 		vkGetPhysicalDeviceProperties(phyDev, &phyDevProperties);
 
 		std::cout << "--- Found physical device: " << phyDevProperties.deviceName << " (index: " << (deviceIndex++) << ")" << std::endl;
-		std::cout << "        apiVersion: " << phyDevProperties.apiVersion << std::endl;
-		std::cout << "     driverVersion: " << phyDevProperties.driverVersion << std::endl;
-		std::cout << "          vendorID: " << phyDevProperties.vendorID << std::endl;
-		std::cout << "          deviceID: " << phyDevProperties.deviceID << std::endl;
+		std::cout << "        apiVersion: "  << phyDevProperties.apiVersion << std::endl;
+		std::cout << "     driverVersion: "  << phyDevProperties.driverVersion << std::endl;
+		std::cout << "          vendorID: "  << phyDevProperties.vendorID << std::endl;
+		std::cout << "          deviceID: "  << phyDevProperties.deviceID << std::endl;
 		std::cout << "        deviceType: (" << phyDevProperties.deviceType << ") ";
+
 		switch(phyDevProperties.deviceType) {
 			case VK_PHYSICAL_DEVICE_TYPE_OTHER:          std::cout << "OTHER";          break;
 			case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: std::cout << "INTEGRATED_GPU"; break;
@@ -446,9 +425,6 @@ bool chooseVkPhysicalDevice(const VkInstance theInstance, VkPhysicalDevice & out
 		std::cout << std::endl;
 		// VkPhysicalDeviceLimits and VkPhysicalDeviceSparseProperties not logged for simplicity.
 	}
-
-	// For simplicity, just pick the first physical device listed and proceed
-	const int deviceToUseIndex = 0;  // Change this value if you are on a multi-gpu system and you want to use a different device.
 
 	std::cout << "\n+++ Index of physical device choosen: " << deviceToUseIndex << '\n' << std::endl;
 
@@ -617,13 +593,13 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 	    .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 	    .pNext = nullptr,
 	    .flags = 0,
-	    .queueCreateInfoCount = (uint32_t)deviceQueueCreateInfoVector.size(),
-	    .pQueueCreateInfos = deviceQueueCreateInfoVector.data(),
-	    .enabledLayerCount = (uint32_t)layersNamesToEnable.size(),
-	    .ppEnabledLayerNames = layersNamesToEnable.data(),
-	    .enabledExtensionCount = (uint32_t)extensionNamesToEnable.size(),
+	    .queueCreateInfoCount    = (uint32_t)deviceQueueCreateInfoVector.size(),
+	    .pQueueCreateInfos       = deviceQueueCreateInfoVector.data(),
+	    .enabledLayerCount       = (uint32_t)layersNamesToEnable.size(),
+	    .ppEnabledLayerNames     = layersNamesToEnable.data(),
+	    .enabledExtensionCount   = (uint32_t)extensionNamesToEnable.size(),
 	    .ppEnabledExtensionNames = extensionNamesToEnable.data(),
-	    .pEnabledFeatures = &physicalDeviceFeatures
+	    .pEnabledFeatures        = &physicalDeviceFeatures
 	};
 
 	result = vkCreateDevice(thePhysicalDevice, &deviceCreateInfo, nullptr, &myDevice);
@@ -647,6 +623,7 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 
 	// We're done here!
 	std::cout << "\n+++ VkDevice and VkQueue created succesfully!\n" << std::endl;
+
 	outDevice = myDevice;
 	outQueue = myQueue;
 	outQueueFamilyIndex = (uint32_t)indexOfGraphicsQueueFamily;
@@ -664,6 +641,8 @@ bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const Vk
 bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
                        const VkDevice theDevice,
                        const VkSurfaceKHR theSurface,
+                       const int windowWidth,
+                       const int windowHeight,
                        VkSwapchainKHR theOldSwapChain,
                        VkSwapchainKHR & outSwapchain,
                        VkFormat & outSurfaceFormat
@@ -672,12 +651,16 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 	VkResult result;
 
 	/*
-	 * Get the list of VkFormat's that are supported.
-	 * TODO: document
+	 * Get the list of VkSurfaceFormatKHRs that are supported.
+	 *
+	 * The VkSurfaceFormatKHR struct represents a pair format-colorspace
+	 * that specify what colorspace con be used with what surface format.
+	 * vkGetPhysicalDeviceSurfaceFormatsKHR will return VkSurfaceFormatKHRs
+	 * whose format is compatible with the specified VkSurfaceKHR.
 	 */
 	uint32_t surfaceFormatsCount;
 	result = vkGetPhysicalDeviceSurfaceFormatsKHR(thePhysicalDevice, theSurface, &surfaceFormatsCount, nullptr);
-	assert(result == VK_SUCCESS);
+	assert(result == VK_SUCCESS && surfaceFormatsCount >= 1);
 
 	std::vector<VkSurfaceFormatKHR> surfaceFormatsVector(surfaceFormatsCount);
 	result = vkGetPhysicalDeviceSurfaceFormatsKHR(thePhysicalDevice, theSurface, &surfaceFormatsCount, surfaceFormatsVector.data());
@@ -688,19 +671,20 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 	// supported format will be returned.
 	VkFormat surfaceFormat;
 
-	if (surfaceFormatsCount == 1 && surfaceFormatsVector[0].format == VK_FORMAT_UNDEFINED) {
+	if (surfaceFormatsCount == 1 && surfaceFormatsVector[0].format == VK_FORMAT_UNDEFINED)
 		surfaceFormat = VK_FORMAT_B8G8R8A8_UNORM;
-	} else {
-		assert(surfaceFormatsCount >= 1);
+	else
 		surfaceFormat = surfaceFormatsVector[0].format;
-	}
 
 	VkColorSpaceKHR surfaceColorSpace = surfaceFormatsVector[0].colorSpace;
 
 
 	/*
-	 * Get physical device surface capabilities
-	 * TODO: document
+	 * Get physical device surface capabilities.
+	 *
+	 * Capabilities are a series of max/min values and usages bits
+	 * that describe the limits and functionalities available in the specified surface.
+	 * Refer to the Vulkan Specification to learn more.
 	 */
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
 	result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(thePhysicalDevice, theSurface, &surfaceCapabilities);
@@ -709,8 +693,9 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 
 	/*
 	 * Get Physical device surface present modes.
+	 *
 	 * A present mode is how the Device will synchronize itself with the video screen when
-	 * has rendered frames available to display.
+	 * it has rendered frames available to display.
 	 */
 	uint32_t presentModeCount = 0;
 	result = vkGetPhysicalDeviceSurfacePresentModesKHR(thePhysicalDevice, theSurface, &presentModeCount, nullptr);
@@ -744,16 +729,16 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 		swapchainExtent.width = (uint32_t)windowWidth;
 		swapchainExtent.height = (uint32_t)windowHeight;
 	}
-	/*else {	// TODO investigate if it's actually a good idea (since we are using SDL, the surface SHOULD have a valid dimension, wouldn't it?)
-		// If the surface size is defined, the swap chain size must match
-		demo->width = surfaceCapabilities.currentExtent.width;
-		demo->height = surfaceCapabilities.currentExtent.height;
-	}*/
+	else {
+		assert(swapchainExtent.width == (uint32_t)windowWidth && swapchainExtent.height == (uint32_t)windowHeight);
+	}
 
 
-	// Determine the number of VkImage's to use in the swap chain (we desire to
-	// own only 1 image at a time, besides the images being displayed and
-	// queued for display):
+	/*
+	 * Determine the number of VkImage's to use in the swap chain (we desire to
+	 * own only 1 image at a time, besides the images being displayed and
+	 * queued for display).
+	 */
 	uint32_t desiredNumberOfSwapchainImages = surfaceCapabilities.minImageCount + 1;
 
 	if (surfaceCapabilities.maxImageCount > 0) {
@@ -761,17 +746,21 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 		desiredNumberOfSwapchainImages = std::min(desiredNumberOfSwapchainImages, surfaceCapabilities.maxImageCount);
 	}
 
-	// TODO: document this part
-	VkSurfaceTransformFlagBitsKHR preTransform;
+	/*
+	 * VkSurfaceTransformFlagBitsKHR define how the surface is transformed (rotated/mirrored)
+	 * before displaying. The supported flags for the current surface are found in
+	 * VkSurfaceCapabilitiesKHR::supportedTransforms.
+	 */
+	VkSurfaceTransformFlagBitsKHR surfaceTransformFlagBits;
 
 	if (surfaceCapabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
-		preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+		surfaceTransformFlagBits = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	else
-		preTransform = surfaceCapabilities.currentTransform;
+		surfaceTransformFlagBits = surfaceCapabilities.currentTransform;
 
 
 	/*
-	 * Create the swapchain
+	 * Create the swapchain.
 	 * TODO document all the fields
 	 */
 	const VkSwapchainCreateInfoKHR swapchainCreateInfo = {
@@ -783,16 +772,17 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 		.imageFormat = surfaceFormat,
 		.imageColorSpace = surfaceColorSpace,
 		.imageExtent = swapchainExtent,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		.preTransform = preTransform,
-		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,    // The swapchain images will be used to write color data to them.
+		.preTransform = surfaceTransformFlagBits,
+		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,  // When compositing to screen, don't use any alpha information present in the image.
 		.imageArrayLayers = 1,
-		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.queueFamilyIndexCount = 0,
-		.pQueueFamilyIndices = nullptr,
-		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
-		.oldSwapchain = theOldSwapChain,  // if we are recreating a swapchain, we pass the old one here.
-		.clipped = true,
+		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,  // The swapchain's images will be accessed by a single queue at a time.
+		.queueFamilyIndexCount = 0,                     // If imageSharingMode is VK_SHARING_MODE_CONCURRENT, provide here
+		.pQueueFamilyIndices = nullptr,                 //   and here a vector of queue families that will be allowed to access the swapchain's images.
+		.presentMode = VK_PRESENT_MODE_FIFO_KHR,        // Present mode FIFO will wait for vsync if no swapchain images are available.
+		.oldSwapchain = theOldSwapChain,                // If we are recreating a swapchain, we pass the old one here.
+		.clipped = VK_TRUE,                             // If some part of the surface isn't visible,
+	                                                    //   let the Vulkan Implementation discard rendering operations on them.
 	};
 
 	VkSwapchainKHR mySwapchain;
@@ -830,7 +820,7 @@ bool getSwapchainImagesAndViews(const VkDevice theDevice,
 	VkResult result;
 
 	/*
-	 * Get swapchain images
+	 * Get swapchain images.
 	 */
 	uint32_t swapchainImageCount;
 	result = vkGetSwapchainImagesKHR(theDevice, theSwapchain, &swapchainImageCount, nullptr);
@@ -843,7 +833,7 @@ bool getSwapchainImagesAndViews(const VkDevice theDevice,
 	std::vector<VkImageView> swapchainImageViewsVector(swapchainImageCount);
 
 	/*
-	 * Create the view for each image
+	 * Create a view for each image.
 	 */
 	for(auto i = 0u; i < swapchainImageCount; i++)
 	{
@@ -882,7 +872,6 @@ bool getSwapchainImagesAndViews(const VkDevice theDevice,
 
 
 
-
 /**
  * Create a VkCommandPool, from which all the VkCommandBuffer will be allocated.
  */
@@ -908,7 +897,6 @@ bool createCommandPool(const VkDevice theDevice,
 	outCommandPool = myCommandPool;
 	return true;
 }
-
 
 
 
@@ -938,7 +926,6 @@ bool allocateCommandBuffer(const VkDevice theDevice,
 	outCommandBuffer = myCommandBuffer;
 	return true;
 }
-
 
 
 
@@ -1286,6 +1273,11 @@ bool renderSingleFrame(const VkDevice theDevice,
  */
 int main(int argc, char* argv[])
 {
+	static int windowWidth = 800;
+	static int windowHeight = 600;
+	static const char * applicationName = "SdlVulkanDemo_01_clearscreen";
+	static const char * engineName = applicationName;
+
 	/*
 	 * SDL2 Initialization
 	 */
@@ -1346,7 +1338,7 @@ int main(int argc, char* argv[])
 
 	// Create a VkInstance
 	VkInstance myInstance;
-	boolResult = createVkInstance(layersNamesToEnable, extensionsNamesToEnable, myInstance);
+	boolResult = createVkInstance(layersNamesToEnable, extensionsNamesToEnable, applicationName, engineName, myInstance);
 	assert(boolResult);
 
 	// Initialize the debug callback
@@ -1358,8 +1350,9 @@ int main(int argc, char* argv[])
 	);
 
 	// Choose a physical device from the instance
+	// For simplicity, just pick the first physical device listed (0).
 	VkPhysicalDevice myPhysicalDevice;
-	boolResult = chooseVkPhysicalDevice(myInstance, myPhysicalDevice);
+	boolResult = chooseVkPhysicalDevice(myInstance, 0, myPhysicalDevice);
 	assert(boolResult);
 
 	// Create a VkSurfaceKHR
@@ -1378,7 +1371,7 @@ int main(int argc, char* argv[])
 	// Create a VkSwapchainKHR
 	VkSwapchainKHR mySwapchain;
 	VkFormat mySurfaceFormat;
-	boolResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
+	boolResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
 	assert(boolResult);
 
 	// Create the swapchain images and related views.
@@ -1456,7 +1449,6 @@ int main(int argc, char* argv[])
 	// that will get signalled once the queue completes all the previous commands.
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
-
 
 	std::cout << "\n---- Rendering Start ----" << std::endl;
 
