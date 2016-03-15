@@ -10,7 +10,11 @@ The code currently has been tested only on a Nvidia GTX 760 graphics card, using
 The only windowing system currently supported is XCB; patches are welcome!
 
 Demo list:
------------
+----------
+
+- **00 - Commons**
+
+  Not really a demo: it's a collection of functions common to all the other demos (object creation, initializations etc).
 
 - **01 - Clearscreen**
 

@@ -1,8 +1,20 @@
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_syswm.h>
 
 #define VK_USE_PLATFORM_XCB_KHR
 #include <vulkan/vulkan.h>
+
+// Include demo functions from the commons directory
+#include "../00_commons/00_utils.h"
+#include "../00_commons/01_createVkInstance.h"
+#include "../00_commons/02_debugReportCallback.h"
+#include "../00_commons/03_createVkSurface.h"
+#include "../00_commons/04_chooseVkPhysicalDevice.h"
+#include "../00_commons/05_createVkDeviceAndVkQueue.h"
+#include "../00_commons/06_swapchain.h"
+#include "../00_commons/07_commandPoolAndBuffer.h"
+
+// Includes for this file
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_syswm.h>
 #include <X11/Xlib-xcb.h> // for XGetXCBConnection()
 
 #include <iostream>
@@ -15,916 +27,320 @@
 #include <climits>
 
 
-/**
- * debug callback; adapted from dbg_callback from vulkaninfo.c in the Vulkan SDK.
- */
-static VKAPI_ATTR VkBool32 VKAPI_CALL
-debugCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t srcObject, size_t location,
-             int32_t msgCode, const char *pLayerPrefix, const char *pMsg, void *pUserData)
-{
-	if (msgFlags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
-		std::cout << "!!!  ERR";
-	else if (msgFlags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
-		std::cout << "!!! WARN";
-	else if (msgFlags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT)
-		std::cout << "~~~ INFO";
-	else if (msgFlags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)
-		std::cout << "~~~ DEBG";
-	else if (msgFlags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
-		std::cout << "~~~ PERF";
-	else
-		std::cout << "??? WTF?";
-
-	std::cout << ": [" << std::setw(3) << pLayerPrefix << "]" << std::setw(3) << msgCode << ": " << pMsg << std::endl;
-
-	/*
-	* False indicates that layer should not bail-out of an
-	* API call that had validation failures. This may mean that the
-	* app dies inside the driver due to invalid parameter(s).
-	* That's what would happen without validation layers, so we'll
-	* keep that behavior here.
-	*/
-	return false;
-}
-
-
-
-/**
- * Helper function that, given a VkResult, returns a string representation of its name.
- * Useful for logging 'n' stuff.
- */
-std::string VkResultToString(const VkResult result)
-{
-	#define MAKE_CASE(resultcode) case resultcode : return std::string{ #resultcode };
-
-	switch(result)
-	{
-		MAKE_CASE(VK_SUCCESS)
-		MAKE_CASE(VK_NOT_READY)
-		MAKE_CASE(VK_TIMEOUT)
-		MAKE_CASE(VK_EVENT_SET)
-		MAKE_CASE(VK_EVENT_RESET)
-		MAKE_CASE(VK_INCOMPLETE)
-		MAKE_CASE(VK_ERROR_OUT_OF_HOST_MEMORY)
-		MAKE_CASE(VK_ERROR_OUT_OF_DEVICE_MEMORY)
-		MAKE_CASE(VK_ERROR_INITIALIZATION_FAILED)
-		MAKE_CASE(VK_ERROR_DEVICE_LOST)
-		MAKE_CASE(VK_ERROR_MEMORY_MAP_FAILED)
-		MAKE_CASE(VK_ERROR_LAYER_NOT_PRESENT)
-		MAKE_CASE(VK_ERROR_EXTENSION_NOT_PRESENT)
-		MAKE_CASE(VK_ERROR_FEATURE_NOT_PRESENT)
-		MAKE_CASE(VK_ERROR_INCOMPATIBLE_DRIVER)
-		MAKE_CASE(VK_ERROR_TOO_MANY_OBJECTS)
-		MAKE_CASE(VK_ERROR_FORMAT_NOT_SUPPORTED)
-		MAKE_CASE(VK_ERROR_SURFACE_LOST_KHR)
-		MAKE_CASE(VK_ERROR_NATIVE_WINDOW_IN_USE_KHR)
-		MAKE_CASE(VK_SUBOPTIMAL_KHR)
-		MAKE_CASE(VK_ERROR_OUT_OF_DATE_KHR)
-		MAKE_CASE(VK_ERROR_INCOMPATIBLE_DISPLAY_KHR)
-		MAKE_CASE(VK_ERROR_VALIDATION_FAILED_EXT)
-
-		default:
-		    return std::string{"<INVALID VKRETURN "} + std::to_string((int)result) + ">";
-	}
-
-	#undef MAKE_CASE
-}
-
-
-
-/**
- * Creates a VKInstance that has all the layer names in layerNamesToEnable
- * and all the extension names in extensionNamesToEnable enabled.
- */
-bool createVkInstance(const std::vector<const char *> & layerNamesToEnable,
-                      const std::vector<const char *> & extensionNamesToEnable,
-                      const char * applicationName,
-                      const char * engineName,
-                      VkInstance & outInstance)
-{
-	VkResult result;
-
-	/*
-	 * The VkApplicationInfo struct contains (optional) information
-	 * about the application.
-	 * It's passed to the VkInstanceCreateInfo struct through a pointer.
-	 */
-	const VkApplicationInfo applicationInfo = {
-		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,  // Must be this value
-		.pNext = nullptr,                       // Must be null (reserved for extensions)
-		.pApplicationName = applicationName,    // Application name (UTF8, null terminated string)
-		.applicationVersion = 1,                // Application version
-		.pEngineName = engineName,              // Engine name (UTF8, null terminated string)
-		.engineVersion = 1,                     // Engine version
-		.apiVersion = VK_API_VERSION,           // Vulkan version the application expects to use;
-		                                        // if = 0, this field is ignored; otherwise, if the implementation
-		                                        // doesn't support the specified version, VK_ERROR_INCOMPATIBLE_DRIVER is returned.
-	};
-
-
-	/*
-	 * The VkInstanceCreateInfo struct contains information regarding the creation of the VkInstance.
-	 */
-	VkInstanceCreateInfo instanceCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,  // Must be this value
-		.pNext = nullptr,                       // Must be null (reserved for extensions)
-		.flags = 0,                             // Must be 0 (reserved for future use)
-		.pApplicationInfo = &applicationInfo,   // Pointer to a VkApplicationInfo struct (or can be null)
-		.enabledLayerCount = 0,                 // Number of global layers to enable
-		.ppEnabledLayerNames = nullptr,         // Pointer to array of #enabledLayerCount strings containing the names of the layers to enable
-		.enabledExtensionCount = 0,             // Number of global extensions to enable
-		.ppEnabledExtensionNames = nullptr,     // Pointer to array of #enabledExtensionCount strings containing the names of the extensions to enable
-	};
-
-	instanceCreateInfo.enabledLayerCount       = (uint32_t)layerNamesToEnable.size();
-	instanceCreateInfo.ppEnabledLayerNames     = layerNamesToEnable.data();
-	instanceCreateInfo.enabledExtensionCount   = (uint32_t)extensionNamesToEnable.size();
-	instanceCreateInfo.ppEnabledExtensionNames = extensionNamesToEnable.data();
-
-	/*
-	 * Layers:
-	 * We list all the layers the current implementation supports,
-	 * and we log them to the console.
-	 */
-	std::vector<VkLayerProperties> layerPropertiesVector;
-
-	{
-		uint32_t supportedLayersCount = 0;
-
-		// Calling vkEnumerateInstanceLayerProperties with a null pProperties will yeld
-		// the number of supported layer in pPropertyCount ("supportedLayersCount" here).
-		result = vkEnumerateInstanceLayerProperties(&supportedLayersCount, nullptr);
-		assert(result == VK_SUCCESS);
-
-		// Allocate a vector to keep all the VkLayerProperties structs.
-		layerPropertiesVector.resize(supportedLayersCount);
-
-		// Get the LayerProperties.
-		result = vkEnumerateInstanceLayerProperties(&supportedLayersCount, layerPropertiesVector.data());
-		assert(result == VK_SUCCESS);
-
-		// Log all the layers on the console.
-		std::cout << "--- Found " << layerPropertiesVector.size() << " instance layers:" << std::endl;
-		std::cout << "    |               Name               |   Spec   |   Impl   | Description" << std::endl;
-		std::cout << "    +----------------------------------+----------+----------+------------" << std::endl;
-
-		for(const auto & layer : layerPropertiesVector)
-		{
-			std::cout <<  "    | " << std::left  << std::setw(33) << layer.layerName
-			          <<  "| " << std::right << std::setw(8) << layer.specVersion
-			          << " | " << std::setw(8) << layer.implementationVersion
-			          << " | " << layer.description
-			          << std::endl;
-		}
-		std::cout << "    +----------------------------------+----------+----------+------------\n" << std::endl;
-	}
-
-
-	/*
-	 * Extensions:
-	 * Each layer has its own set of extensions; for each layer, we query the extensions it provides
-	 * and we log them to the console.
-	 * Note that the Vulkan implementation could provide extensions, as other implicitly enabled layers;
-	 * we query those extensions too.
-	 */
-
-	// Helper lambda to query extensions for a certain layer name and print them to console
-	const auto queryAndPrintExtensions = [&](const char * layerName)
-	{
-		uint32_t propertyCount = 0;
-
-		// Query the number of extensions
-		result = vkEnumerateInstanceExtensionProperties(layerName, &propertyCount, nullptr);
-		assert(result == VK_SUCCESS);
-
-		// Allocate a vector to store the extension properties
-		std::vector<VkExtensionProperties> extPropertiesVector(propertyCount);
-
-		// Query the actual properties
-		result = vkEnumerateInstanceExtensionProperties(layerName, &propertyCount, extPropertiesVector.data());
-		assert(result == VK_SUCCESS);
-
-		// Log them to console
-		std::cout << "--- Found " << extPropertiesVector.size() << " extensions for layer " << (layerName==nullptr ? "(null)" : layerName) << std::endl;
-
-		if(extPropertiesVector.size() > 0)
-		{
-			std::cout << "    |               Name               |  Spec  |" << std::endl;
-			std::cout << "    +----------------------------------+--------+" << std::endl;
-
-			for(const auto & ext : extPropertiesVector) {
-				std::cout << "    | " << std::left << std::setw(33) << ext.extensionName
-						  << "| " << std::right << std::setw(6) << ext.specVersion
-						  << " |"
-						  << std::endl;
-			}
-			std::cout << "    +----------------------------------+--------+\n";
-		}
-		std::cout << std::endl;
-
-		return extPropertiesVector;
-	};
-
-	// Passing a null pointer as the name of the layer, we get the Vulkan implementation's (global) extensions,
-	// and the extensions of the implicitly enabled layers.
-	auto globalExtensionsVector = queryAndPrintExtensions(nullptr);
-
-	for(const auto & layer : layerPropertiesVector)
-		queryAndPrintExtensions(layer.layerName);
-
-	std::cout << std::endl;
-
-
-	/*
-	 * Layers enable:
-	 * Check if all the layer names we want to enable are present
-	 * in the VkLayerProperties we collected before in layerPropertiesVector.
-	 */
-	for(const auto & layerName : layerNamesToEnable)
-	{
-		auto itr = std::find_if(layerPropertiesVector.begin(), layerPropertiesVector.end(),
-			[&](const VkLayerProperties & extProp){
-				return strcmp(layerName, extProp.layerName) == 0;
-			}
-		);
-
-		if(itr == layerPropertiesVector.end()) {
-			std::cout << "!!! ERROR: Layer " << layerName << " was not found." << std::endl;
-			return false;
-		}
-	}
-
-
-	/*
-	 * Extensions enable:
-	 * Check if all the extension names we want to enable are present
-	 * in the VkExtensionProperties we collected before in globalExtensionsVector.
-	 */
-	for(const auto & extName : extensionNamesToEnable)
-	{
-		auto itr = std::find_if(globalExtensionsVector.begin(), globalExtensionsVector.end(),
-			[&](const VkExtensionProperties & extProp){
-				return strcmp(extName, extProp.extensionName) == 0;
-			}
-		);
-
-		if(itr == globalExtensionsVector.end()) {
-			std::cout << "!!! ERROR: extension " << extName << " was not found in the global extensions vector." << std::endl;
-			return false;
-		}
-	}
-
-
-	/*
-	 * Here the magic happens: the VkInstance gets created from
-	 * the structs we filled before.
-	 */
-	VkInstance myInstance;
-	result = vkCreateInstance(&instanceCreateInfo, nullptr, &myInstance);
-
-	if(result != VK_SUCCESS) {
-		std::cout << "!!! ERROR: Cannot create Vulkan instance, " << VkResultToString(result) << std::endl;
-		return false;
-	}
-
-	std::cout << "+++ VkInstance created succesfully!\n" << std::endl;
-	outInstance = myInstance;
-	return true;
-}
-
-
-
-
 /*
- * Create a VkDebugReportCallbackEXT on the specified Instance.
- *
- * This way we'll get messages from the driver or the validation layers.
+ * Prototypes for functions defined in this file.
  */
-bool createDebugReportCallback(const VkInstance theInstance,
-                               const VkDebugReportFlagsEXT theFlags,
-                               const PFN_vkDebugReportCallbackEXT theCallback,
-                               VkDebugReportCallbackEXT & outDebugReportCallback)
-{
-	// Since this is an extension, we need to get the pointer to vkCreateDebugReportCallbackEXT at runtime
-	auto pfn_vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(theInstance, "vkCreateDebugReportCallbackEXT");
-
-	// Fill a VkDebugReportCallbackCreateInfoEXT struct with appropriate information
-	VkDebugReportCallbackCreateInfoEXT debugReportCallbackCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT,
-		.pNext = 0,
-		.flags = theFlags,
-		.pfnCallback = theCallback,
-		.pUserData = nullptr,
-	};
-
-	// Call the function pointer we got before to create the VkDebugReportCallback:
-	VkDebugReportCallbackEXT myDebugReportCallback;
-	VkResult result = pfn_vkCreateDebugReportCallbackEXT(theInstance, &debugReportCallbackCreateInfo, nullptr, &myDebugReportCallback);
-	assert(result == VK_SUCCESS);
-
-	outDebugReportCallback = myDebugReportCallback;
-	return true;
-}
-
-
-
-/*
- * Utility to destroy a VkDebugReportCallbackEXT
- */
-void destroyDebugReportCallback(const VkInstance theInstance, const VkDebugReportCallbackEXT theDebugReportCallback)
-{
-	// Get the function pointer and call the function.
-	auto pfn_vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(theInstance, "vkDestroyDebugReportCallbackEXT");
-	pfn_vkDestroyDebugReportCallbackEXT(theInstance, theDebugReportCallback, nullptr);
-}
-
-
-
-
-/*
- * Create a VkSurfaceKHR from the specified instance.
- *
- * This example is currently limited to XCB only.
- */
-bool createVkSurfaceXCB(const VkInstance theInstance, xcb_connection_t * const xcbConnection, const xcb_window_t & xcbWindow, VkSurfaceKHR & outInstance)
-{
-	VkResult result;
-	VkSurfaceKHR mySurface;
-
-	/*
-	 * Surface creation:
-	 * this procedure depends on the Windowing system you use, but the steps to take
-	 * are very similar to each other.
-	 * Refer to the Window System Integration (WSI) chapter in the Vulkan Specification for more informations.
-	 */
-	VkXcbSurfaceCreateInfoKHR xlibSurfaceCreateInfo {
-		.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
-		.pNext = nullptr,
-		.flags = 0,
-		.connection = xcbConnection,
-		.window = xcbWindow
-	};
-
-	result = vkCreateXcbSurfaceKHR(theInstance, &xlibSurfaceCreateInfo, nullptr, &mySurface);
-	assert(result == VK_SUCCESS);
-
-	std::cout << "+++ VkSurface created succesfully!\n" << std::endl;
-	outInstance = mySurface;
-	return true;
-}
-
-
+bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector);
+bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkImage theCurrentSwapchainImage, const float clearColorR, const float clearColorG, const float clearColorB);
+bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const VkCommandBuffer thePresentCmdBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkFence thePresentFence, const float clearColorR, const float clearColorG, const float clearColorB);
 
 
 /**
- * Query the instance for all the physical devices, and return one of them.
- * (in this demo, for simplicity, we take the first phydev we find;
- * ideally, we would query the capabilities of each phydev and choose the
- * one best suited for our needs).
+ * Good ol' main function.
  */
-bool chooseVkPhysicalDevice(const VkInstance theInstance, const unsigned int deviceToUseIndex, VkPhysicalDevice & outPhysicalDevice)
+int main(int argc, char* argv[])
 {
-	VkResult result;
+	static int windowWidth = 800;
+	static int windowHeight = 600;
+	static const char * applicationName = "SdlVulkanDemo_01_clearscreen";
+	static const char * engineName = applicationName;
 
 	/*
-	 * Here we query the Vulkan Implementation for the physical devices
-	 * available in the system. We then log their information to the console.
+	 * SDL2 Initialization
 	 */
-	uint32_t physicalDevicesCount = 0;
-	result = vkEnumeratePhysicalDevices(theInstance, &physicalDevicesCount, nullptr);
-	assert(result == VK_SUCCESS && physicalDevicesCount > 0);
+	SDL_Window *window;
+	SDL_SysWMinfo info;
 
-	std::vector<VkPhysicalDevice> physicalDevicesVector(physicalDevicesCount);
-	result = vkEnumeratePhysicalDevices(theInstance, &physicalDevicesCount, physicalDevicesVector.data());
-	assert(result == VK_SUCCESS);
+	SDL_Init(SDL_INIT_VIDEO);
 
-
-	// For each physical device we query its properties and pretty-print them to the console.
-	int deviceIndex = 0;
-	for(const auto & phyDev : physicalDevicesVector)
-	{
-		VkPhysicalDeviceProperties phyDevProperties;
-		vkGetPhysicalDeviceProperties(phyDev, &phyDevProperties);
-
-		std::cout << "--- Found physical device: " << phyDevProperties.deviceName << " (index: " << (deviceIndex++) << ")" << std::endl;
-		std::cout << "        apiVersion: "  << phyDevProperties.apiVersion << std::endl;
-		std::cout << "     driverVersion: "  << phyDevProperties.driverVersion << std::endl;
-		std::cout << "          vendorID: "  << phyDevProperties.vendorID << std::endl;
-		std::cout << "          deviceID: "  << phyDevProperties.deviceID << std::endl;
-		std::cout << "        deviceType: (" << phyDevProperties.deviceType << ") ";
-
-		switch(phyDevProperties.deviceType) {
-			case VK_PHYSICAL_DEVICE_TYPE_OTHER:          std::cout << "OTHER";          break;
-			case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: std::cout << "INTEGRATED_GPU"; break;
-			case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   std::cout << "DISCRETE_GPU";   break;
-			case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    std::cout << "VIRTUAL_GPU";    break;
-			case VK_PHYSICAL_DEVICE_TYPE_CPU:            std::cout << "CPU";            break;
-			default:                                     std::cout << "UNKNOWN!!!";     break;
-		}
-
-		std::cout << std::endl;
-		// VkPhysicalDeviceLimits and VkPhysicalDeviceSparseProperties not logged for simplicity.
-	}
-
-	std::cout << "\n+++ Index of physical device choosen: " << deviceToUseIndex << '\n' << std::endl;
-
-	outPhysicalDevice = physicalDevicesVector[deviceToUseIndex];
-	return true;
-}
-
-
-
-
-/**
- * Creates a VkDevice and its associated VkQueue.
- */
-bool createVkDeviceAndVkQueue(const VkPhysicalDevice thePhysicalDevice, const VkSurfaceKHR theSurface, const std::vector<const char *> & layersNamesToEnable, VkDevice & outDevice, VkQueue & outQueue, uint32_t & outQueueFamilyIndex)
-{
-	VkResult result;
-
-	/*
-	 * Device Layers and Extensions:
-	 * like we did for VkInstance, we need to query the implementation for the layers
-	 * and the extensions a certain physical device supports.
-	 * Since it's basically the same code as before (using
-	 * vkEnumerateDeviceLayerProperties/vkEnumerateDeviceExtensionProperties
-	 * instead of vkEnumerateInstanceLayerProperties/vkEnumerateInstanceExtensionProperties),
-	 * here we just check if the device supports the VK_KHR_SWAPCHAIN_EXTENSION_NAME extension,
-	 * and we assume it supports all the validation layers we ask to use.
-	 *
-	 * Ideally, you would be doing this for each physical device
-	 * as part of the procedure for choosing the physical device, but for simplicity
-	 * we'll do it only once for the selected "phyDevice".
-	 */
-	uint32_t deviceExtensionCount = 0;
-	result = vkEnumerateDeviceExtensionProperties(thePhysicalDevice, nullptr, &deviceExtensionCount, nullptr);
-	assert(result == VK_SUCCESS && deviceExtensionCount > 0);
-
-	std::vector<VkExtensionProperties> deviceExtensionVector(deviceExtensionCount);
-	result = vkEnumerateDeviceExtensionProperties(thePhysicalDevice, nullptr, &deviceExtensionCount, deviceExtensionVector.data());
-	assert(result == VK_SUCCESS);
-
-	bool hasSwapchainExtension = false;
-	for(const auto & extProp : deviceExtensionVector)
-	{
-		if(strcmp(extProp.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
-			hasSwapchainExtension = true;
-			break;
-		}
-	}
-
-	if(!hasSwapchainExtension) {
-		std::cout << "!!! ERROR: chosen physical device does not support VK_KHR_SWAPCHAIN_EXTENSION_NAME!" << std::endl;
-		return false;
-	}
-
-
-	/*
-	 * Queue Families:
-	 * we query the selected device for the number and type of Queue Families it supports,
-	 * and we log to the console the properties of each.
-	 *
-	 * We then choose a queue family that supports graphics commands and presentation.
-	 * (This demo supports, for now, only one queue that must support both graphics and present)
-	 */
-	uint32_t queueFamilyPropertyCount = 0;
-	vkGetPhysicalDeviceQueueFamilyProperties(thePhysicalDevice, &queueFamilyPropertyCount, nullptr);
-
-	if(queueFamilyPropertyCount <= 0) {
-		std::cout << "!!! ERROR: chosen physical device has no queue families!" << std::endl;
-		return false;
-	}
-
-	std::vector<VkQueueFamilyProperties> queueFamilyPropertiesVector(queueFamilyPropertyCount);
-	vkGetPhysicalDeviceQueueFamilyProperties(thePhysicalDevice, &queueFamilyPropertyCount, queueFamilyPropertiesVector.data());
-
-	int queueFamilyIndex = 0;
-	int indexOfGraphicsQueueFamily = -1;
-	for(const auto & queueFamProp : queueFamilyPropertiesVector)
-	{
-		// Check if the queue family supports presentation
-		VkBool32 doesItSupportPresent = VK_FALSE;
-		result = vkGetPhysicalDeviceSurfaceSupportKHR(thePhysicalDevice, (uint32_t)queueFamilyIndex, theSurface, &doesItSupportPresent);
-		assert(result == VK_SUCCESS);
-
-		std::cout << "--- Properties for queue family " << queueFamilyIndex << std::endl;
-		std::cout << "                     queueFlags:";
-
-		if(queueFamProp.queueFlags & VK_QUEUE_GRAPHICS_BIT)
-			std::cout << " GRAPHICS";
-		if(queueFamProp.queueFlags & VK_QUEUE_COMPUTE_BIT)
-			std::cout << " COMPUTE";
-		if(queueFamProp.queueFlags & VK_QUEUE_TRANSFER_BIT)
-			std::cout << " TRANSFER";
-		if(queueFamProp.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT)
-			std::cout << " SPARSE_BINDING";
-
-		std::cout << '\n';
-		std::cout << "                     queueCount: " << queueFamProp.queueCount << std::endl;
-		std::cout << "             timestampValidBits: " << queueFamProp.timestampValidBits << std::endl;
-		std::cout << "    minImageTransferGranularity: " << queueFamProp.minImageTransferGranularity.width
-		                                        << ", " << queueFamProp.minImageTransferGranularity.height
-		                                        << ", " << queueFamProp.minImageTransferGranularity.depth
-		                                        << std::endl;
-
-		std::cout << "       Does it support present?: " << std::boolalpha << bool(doesItSupportPresent) << std::endl;
-
-		// Select queue family if it supports all the requisites.
-		if(bool(queueFamProp.queueFlags & VK_QUEUE_GRAPHICS_BIT) && doesItSupportPresent == VK_TRUE) {
-			if(indexOfGraphicsQueueFamily < 0)
-				indexOfGraphicsQueueFamily = queueFamilyIndex;
-		}
-
-		queueFamilyIndex++;
-	}
-
-	if(indexOfGraphicsQueueFamily < 0) {
-		std::cout << "!!! ERROR: chosen physical device has no queue families that support both graphics and present!" << std::endl;
-		return false;
-	}
-
-
-	/*
-	 * Queue create info:
-	 * When we create the VkDevice, we also create many queues associated to it.
-	 * For this reason, before we create our VkDevice, we need to specify how many queues
-	 * (and with which properties) we want to have in the VkDevice.
-	 *
-	 * For this demo, we're going to create a single graphics queue for the device.
-	 * This queue will be of the family we found before, which we already checked supports graphics.
-	 */
-	std::vector<VkDeviceQueueCreateInfo> deviceQueueCreateInfoVector;
-
-	VkDeviceQueueCreateInfo qciToFill;
-	qciToFill.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	qciToFill.pNext = nullptr;
-	qciToFill.flags = 0;
-
-	float queuePriority = 1.0f;
-	qciToFill.queueFamilyIndex = (uint32_t)indexOfGraphicsQueueFamily; // The queue family with the graphics capability we found before.
-	qciToFill.queueCount = 1;                                          // We only want one queue created for this family in this demo.
-	qciToFill.pQueuePriorities = &queuePriority;                       // An array of queueCount elements specifying priorities of work
-	                                                                   //  that will be submitted to each created queue. Refer to the spec for more info.
-	deviceQueueCreateInfoVector.push_back(qciToFill);
-
-
-	/*
-	 * Physical device features:
-	 * At device creation time, you can choose from a variety of fine-grained features
-	 * you want to enable/disable for that particular device.
-	 *
-	 * For this demo we're going to use the default settings;
-	 * refer to Chapter 31 (Features, Limits, and Formats) to learn more.
-	 */
-	VkPhysicalDeviceFeatures physicalDeviceFeatures;
-	vkGetPhysicalDeviceFeatures(thePhysicalDevice, &physicalDeviceFeatures);
-
-
-	/*
-	 * Device creation:
-	 * we can finally create a VkDevice, from the VkPhysicalDevice we selected before.
-	 * To do that, we need to populate a VkDeviceCreationInfo struct with the relevant informations.
-	 */
-	VkDevice myDevice;
-
-	std::vector<const char *> extensionNamesToEnable = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
-
-	VkDeviceCreateInfo deviceCreateInfo = {
-	    .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-	    .pNext = nullptr,
-	    .flags = 0,
-	    .queueCreateInfoCount    = (uint32_t)deviceQueueCreateInfoVector.size(),
-	    .pQueueCreateInfos       = deviceQueueCreateInfoVector.data(),
-	    .enabledLayerCount       = (uint32_t)layersNamesToEnable.size(),
-	    .ppEnabledLayerNames     = layersNamesToEnable.data(),
-	    .enabledExtensionCount   = (uint32_t)extensionNamesToEnable.size(),
-	    .ppEnabledExtensionNames = extensionNamesToEnable.data(),
-	    .pEnabledFeatures        = &physicalDeviceFeatures
-	};
-
-	result = vkCreateDevice(thePhysicalDevice, &deviceCreateInfo, nullptr, &myDevice);
-	assert(result == VK_SUCCESS);
-
-
-	/*
-	 * Since the queues are created together with the VkDevice,
-	 * using the vkGetDeviceQueue we can get the created instances
-	 * of the requested queues from each device.
-	 *
-	 * In this demo we only created a single queue.
-	 */
-	VkQueue myQueue;
-
-	vkGetDeviceQueue(myDevice,                              // The device from which we want to get the queue instance
-	                 (uint32_t)indexOfGraphicsQueueFamily,  // The index of the queue family were we created our queue
-	                 0,                                     // The index of the created queue in the family (0 means the first one, since we created only one queue)
-	                 &myQueue                               // The queue goes here.
+	window = SDL_CreateWindow(
+		applicationName,
+		SDL_WINDOWPOS_UNDEFINED,
+		SDL_WINDOWPOS_UNDEFINED,
+		windowWidth,
+		windowHeight,
+		SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
 	);
 
-	// We're done here!
-	std::cout << "\n+++ VkDevice and VkQueue created succesfully!\n" << std::endl;
+	SDL_VERSION(&info.version);   // initialize info structure with SDL version info
 
-	outDevice = myDevice;
-	outQueue = myQueue;
-	outQueueFamilyIndex = (uint32_t)indexOfGraphicsQueueFamily;
-	return true;
-}
-
-
-
-
-/**
- * Create a VkSwapchain from the VkSurface provided.
- * Parameter "theOldSwapChain" is used if we are recreating a swapchain (for example if we resized the window);
- * if we are creating the swapchain for the first time, this parameter must be VK_NULL_HANDLE.
- */
-bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
-                       const VkDevice theDevice,
-                       const VkSurfaceKHR theSurface,
-                       const int windowWidth,
-                       const int windowHeight,
-                       VkSwapchainKHR theOldSwapChain,
-                       VkSwapchainKHR & outSwapchain,
-                       VkFormat & outSurfaceFormat
-                       )
-{
-	VkResult result;
-
-	/*
-	 * Get the list of VkSurfaceFormatKHRs that are supported.
-	 *
-	 * The VkSurfaceFormatKHR struct represents a pair format-colorspace
-	 * that specify what colorspace con be used with what surface format.
-	 * vkGetPhysicalDeviceSurfaceFormatsKHR will return VkSurfaceFormatKHRs
-	 * whose format is compatible with the specified VkSurfaceKHR.
-	 */
-	uint32_t surfaceFormatsCount;
-	result = vkGetPhysicalDeviceSurfaceFormatsKHR(thePhysicalDevice, theSurface, &surfaceFormatsCount, nullptr);
-	assert(result == VK_SUCCESS && surfaceFormatsCount >= 1);
-
-	std::vector<VkSurfaceFormatKHR> surfaceFormatsVector(surfaceFormatsCount);
-	result = vkGetPhysicalDeviceSurfaceFormatsKHR(thePhysicalDevice, theSurface, &surfaceFormatsCount, surfaceFormatsVector.data());
-	assert(result == VK_SUCCESS);
-
-	// If the format list includes just one entry of VK_FORMAT_UNDEFINED,
-	// the surface has no preferred format. Otherwise, at least one
-	// supported format will be returned.
-	VkFormat surfaceFormat;
-
-	if (surfaceFormatsCount == 1 && surfaceFormatsVector[0].format == VK_FORMAT_UNDEFINED)
-		surfaceFormat = VK_FORMAT_B8G8R8A8_UNORM;
-	else
-		surfaceFormat = surfaceFormatsVector[0].format;
-
-	VkColorSpaceKHR surfaceColorSpace = surfaceFormatsVector[0].colorSpace;
-
-
-	/*
-	 * Get physical device surface capabilities.
-	 *
-	 * Capabilities are a series of max/min values and usages bits
-	 * that describe the limits and functionalities available in the specified surface.
-	 * Refer to the Vulkan Specification to learn more.
-	 */
-	VkSurfaceCapabilitiesKHR surfaceCapabilities;
-	result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(thePhysicalDevice, theSurface, &surfaceCapabilities);
-	assert(result == VK_SUCCESS);
-
-
-	/*
-	 * Get Physical device surface present modes.
-	 *
-	 * A present mode is how the Device will synchronize itself with the video screen when
-	 * it has rendered frames available to display.
-	 */
-	uint32_t presentModeCount = 0;
-	result = vkGetPhysicalDeviceSurfacePresentModesKHR(thePhysicalDevice, theSurface, &presentModeCount, nullptr);
-	assert(result == VK_SUCCESS && presentModeCount > 0);
-
-	std::vector<VkPresentModeKHR> presentModesVector(presentModeCount);
-	result = vkGetPhysicalDeviceSurfacePresentModesKHR(thePhysicalDevice, theSurface, &presentModeCount, presentModesVector.data());
-	assert(result == VK_SUCCESS);
-
-	for(const auto presMode : presentModesVector)
+	if(SDL_GetWindowWMInfo(window, &info))
 	{
-		std::cout << "--- Supported present mode: ";
-		switch(presMode) {
-			case VK_PRESENT_MODE_IMMEDIATE_KHR:    std::cout << "VK_PRESENT_MODE_IMMEDIATE_KHR";    break;
-			case VK_PRESENT_MODE_MAILBOX_KHR:      std::cout << "VK_PRESENT_MODE_MAILBOX_KHR";      break;
-			case VK_PRESENT_MODE_FIFO_KHR:         std::cout << "VK_PRESENT_MODE_FIFO_KHR";         break;
-			case VK_PRESENT_MODE_FIFO_RELAXED_KHR: std::cout << "VK_PRESENT_MODE_FIFO_RELAXED_KHR"; break;
-			default: std::cout << "???"; break;
+		// TODO add support for other windowing systems
+		if(info.subsystem != SDL_SYSWM_X11) {
+			std::cout << "!!! ERROR: Only X11 is supported in this demo for now." << std::endl;
+			exit(1);
 		}
-		std::cout << " (" << presMode << ')' << std::endl;
 	}
-
-
-	// Get the swapchain extent, and check if it's already filled or if we must manually set width and height.
-	VkExtent2D swapchainExtent = surfaceCapabilities.currentExtent;
-
-	if(swapchainExtent.width == (uint32_t)(-1)) // width and height are either both -1, or both not -1.
-	{
-		// If the surface size is undefined, the size is set to
-		// the size of the images requested.
-		swapchainExtent.width = (uint32_t)windowWidth;
-		swapchainExtent.height = (uint32_t)windowHeight;
-	}
-	else {
-		assert(swapchainExtent.width == (uint32_t)windowWidth && swapchainExtent.height == (uint32_t)windowHeight);
-	}
-
-
-	/*
-	 * Determine the number of VkImage's to use in the swap chain (we desire to
-	 * own only 1 image at a time, besides the images being displayed and
-	 * queued for display).
-	 */
-	uint32_t desiredNumberOfSwapchainImages = surfaceCapabilities.minImageCount + 1;
-
-	if (surfaceCapabilities.maxImageCount > 0) {
-		// Limit the number of images, if maxImageCount is defined.
-		desiredNumberOfSwapchainImages = std::min(desiredNumberOfSwapchainImages, surfaceCapabilities.maxImageCount);
-	}
-
-	/*
-	 * VkSurfaceTransformFlagBitsKHR define how the surface is transformed (rotated/mirrored)
-	 * before displaying. The supported flags for the current surface are found in
-	 * VkSurfaceCapabilitiesKHR::supportedTransforms.
-	 */
-	VkSurfaceTransformFlagBitsKHR surfaceTransformFlagBits;
-
-	if (surfaceCapabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
-		surfaceTransformFlagBits = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	else
-		surfaceTransformFlagBits = surfaceCapabilities.currentTransform;
-
-
-	/*
-	 * Create the swapchain.
-	 * TODO document all the fields
-	 */
-	const VkSwapchainCreateInfoKHR swapchainCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-		.pNext = nullptr,
-		.flags = 0,
-		.surface = theSurface,
-		.minImageCount = desiredNumberOfSwapchainImages,
-		.imageFormat = surfaceFormat,
-		.imageColorSpace = surfaceColorSpace,
-		.imageExtent = swapchainExtent,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,    // The swapchain images will be used to write color data to them.
-		.preTransform = surfaceTransformFlagBits,
-		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,  // When compositing to screen, don't use any alpha information present in the image.
-		.imageArrayLayers = 1,
-		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,  // The swapchain's images will be accessed by a single queue at a time.
-		.queueFamilyIndexCount = 0,                     // If imageSharingMode is VK_SHARING_MODE_CONCURRENT, provide here
-		.pQueueFamilyIndices = nullptr,                 //   and here a vector of queue families that will be allowed to access the swapchain's images.
-		.presentMode = VK_PRESENT_MODE_FIFO_KHR,        // Present mode FIFO will wait for vsync if no swapchain images are available.
-		.oldSwapchain = theOldSwapChain,                // If we are recreating a swapchain, we pass the old one here.
-		.clipped = VK_TRUE,                             // If some part of the surface isn't visible,
-	                                                    //   let the Vulkan Implementation discard rendering operations on them.
-	};
-
-	VkSwapchainKHR mySwapchain;
-	result = vkCreateSwapchainKHR(theDevice, &swapchainCreateInfo, nullptr, &mySwapchain);
-	assert(result == VK_SUCCESS);
-
-	std::cout << "+++ VkSwapchainKHR created succesfully!\n";
-	outSwapchain = mySwapchain;
-	outSurfaceFormat = surfaceFormat;
-
-	// Destroy the old swapchain, if there was one.
-	if(theOldSwapChain != VK_NULL_HANDLE) {
-		vkDestroySwapchainKHR(theDevice, theOldSwapChain, nullptr);
-		std::cout << "+++     ... and old VkSwapchainKHR destroyed succesfully!\n";
-	}
-	std::cout << std::endl;
-
-	return true;
-}
-
-
-
-
-/**
- * Get the VkImages out of the specified swapchain, and create for each of them an
- * associated VkImageView.
- */
-bool getSwapchainImagesAndViews(const VkDevice theDevice,
-                                const VkSwapchainKHR theSwapchain,
-                                const VkFormat & theSurfaceFormat,
-                                std::vector<VkImage> & outSwapchainImagesVector,
-                                std::vector<VkImageView> & outSwapchainImageViewsVector
-                                )
-{
-	VkResult result;
-
-	/*
-	 * Get swapchain images.
-	 */
-	uint32_t swapchainImageCount;
-	result = vkGetSwapchainImagesKHR(theDevice, theSwapchain, &swapchainImageCount, nullptr);
-	assert(result == VK_SUCCESS);
-
-	std::vector<VkImage> swapchainImagesVector(swapchainImageCount);
-	result = vkGetSwapchainImagesKHR(theDevice, theSwapchain, &swapchainImageCount, swapchainImagesVector.data());
-	assert(result == VK_SUCCESS);
-
-	std::vector<VkImageView> swapchainImageViewsVector(swapchainImageCount);
-
-	/*
-	 * Create a view for each image.
-	 */
-	for(auto i = 0u; i < swapchainImageCount; i++)
 	{
-		// TODO document every field
-		VkImageViewCreateInfo imageViewCreateInfo = {
-			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-			.pNext = nullptr,
-			.flags = 0,
-			.format = theSurfaceFormat,
-			.components = {
-				.r = VK_COMPONENT_SWIZZLE_R,
-				.g = VK_COMPONENT_SWIZZLE_G,
-				.b = VK_COMPONENT_SWIZZLE_B,
-				.a = VK_COMPONENT_SWIZZLE_A,
-			},
-			.subresourceRange = {
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1
-			},
-			.viewType = VK_IMAGE_VIEW_TYPE_2D,
-			.image = swapchainImagesVector[i],
-		};
-
-		result = vkCreateImageView(theDevice, &imageViewCreateInfo, nullptr, &swapchainImageViewsVector[i]);
-		assert(result == VK_SUCCESS);
+		std::cout << "!!! ERROR: Couldn't get window information: " << SDL_GetError() << std::endl;
+		exit(1);
 	}
 
-	std::cout << "+++ Created " << swapchainImageCount << " swapchain images and views."<< std::endl;
-	outSwapchainImagesVector = std::move(swapchainImagesVector);
-	outSwapchainImageViewsVector = std::move(swapchainImageViewsVector);
-	return true;
-}
 
-
-
-/**
- * Create a VkCommandPool, from which all the VkCommandBuffer will be allocated.
- */
-bool createCommandPool(const VkDevice theDevice,
-                       const uint32_t theQueueFamilyIndex,
-                       const VkCommandPoolCreateFlagBits createFlagBits,
-                       VkCommandPool & outCommandPool
-                       )
-{
+	/*
+	 * Do all the Vulkan goodies here.
+	 */
+	bool boolResult;
 	VkResult result;
 
-	const VkCommandPoolCreateInfo commandPoolCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = createFlagBits,
-		.queueFamilyIndex = theQueueFamilyIndex,
-	};
+	// Vector of the layer names we want to enable on the Instance
+	std::vector<const char *> layersNamesToEnable;
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_threading");       // Enable all the standard validation layers that come with the VulkanSDK.
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
+	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
+	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
+	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
 
+	// Vector of the extension names we want to enable on the Instance
+	std::vector<const char *> extensionsNamesToEnable;
+	extensionsNamesToEnable.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+	extensionsNamesToEnable.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME); // TODO: add support for other windowing systems
+
+	// Create a VkInstance
+	VkInstance myInstance;
+	boolResult = vkdemos::createVkInstance(layersNamesToEnable, extensionsNamesToEnable, applicationName, engineName, myInstance);
+	assert(boolResult);
+
+	// Initialize the debug callback
+	VkDebugReportCallbackEXT myDebugReportCallback;
+	vkdemos::createDebugReportCallback(myInstance,
+		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
+		vkdemos::debugCallback,
+		myDebugReportCallback
+	);
+
+	// Choose a physical device from the instance
+	// For simplicity, just pick the first physical device listed (0).
+	VkPhysicalDevice myPhysicalDevice;
+	boolResult = vkdemos::chooseVkPhysicalDevice(myInstance, 0, myPhysicalDevice);
+	assert(boolResult);
+
+	// Create a VkSurfaceKHR
+	// TODO add support for other windowing systems
+	VkSurfaceKHR mySurface;
+	boolResult = vkdemos::createVkSurfaceXCB(myInstance, XGetXCBConnection(info.info.x11.display), static_cast<xcb_window_t>(info.info.x11.window), mySurface);
+	assert(boolResult);
+
+	// Create a VkDevice and its VkQueue
+	VkDevice myDevice;
+	VkQueue myQueue;
+	uint32_t myQueueFamilyIndex;
+	boolResult = vkdemos::createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, layersNamesToEnable, myDevice, myQueue, myQueueFamilyIndex);
+	assert(boolResult);
+
+	// Create a VkSwapchainKHR
+	VkSwapchainKHR mySwapchain;
+	VkFormat mySurfaceFormat;
+	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
+	assert(boolResult);
+
+	// Create the swapchain images and related views.
+	// (the views are not actually used in this demo, but since they'll be needed in the future
+	// to create the framebuffers, we'll create them anyway to show how to do it).
+	std::vector<VkImage> mySwapchainImagesVector;
+	std::vector<VkImageView> mySwapchainImageViewsVector;
+	boolResult = vkdemos::getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
+	assert(boolResult);
+
+	// Create a command pool, so that we can later allocate the command buffers.
 	VkCommandPool myCommandPool;
-	result = vkCreateCommandPool(theDevice, &commandPoolCreateInfo, nullptr, &myCommandPool);
+	boolResult = vkdemos::createCommandPool(myDevice, myQueueFamilyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, myCommandPool);
+	assert(boolResult);
+
+
+	// Allocate a command buffer that will hold our initialization commands.
+	VkCommandBuffer myCmdBufferInitialization;
+	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferInitialization);
+	assert(boolResult);
+
+	// Allocate a command buffer that will hold our clear screen and present commands.
+	VkCommandBuffer myCmdBufferPresent;
+	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
+	assert(boolResult);
+
+	// We create a Fence object: this object will be used to synchronize
+	// the CPU thread with the GPU presentation rate, so that
+	// we don't do useless work on the cpu if the presentation rate
+	// is slower that the rendering rate.
+	// Note: in a "real" application, you would have multiple Fences
+	// (for example 2 or 3), so that the CPU doesn't wait on every frame
+	// but there's a bit of buffering going on.
+	VkFence myPresentFence;
+	VkFenceCreateInfo fenceCreateInfo = {
+	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+	    .pNext = nullptr,
+	    .flags = 0
+	};
+	result = vkCreateFence(myDevice, &fenceCreateInfo, nullptr, &myPresentFence);
 	assert(result == VK_SUCCESS);
 
-	outCommandPool = myCommandPool;
-	return true;
-}
 
+	/*
+	 * We completed the creation and allocation of all the resources we need!
+	 * Now it's time to build and submit the first command buffer that will contain
+	 * all the initialization commands, such as transitioning the images from
+	 * VK_IMAGE_LAYOUT_UNDEFINED to something sensible.
+	 */
 
+	// We fill the initialization command buffer with... the initialization commands.
+	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector);
+	assert(boolResult);
 
-/**
- * Allocate a VkCommandBuffer from a VkCommandPool.
- */
-bool allocateCommandBuffer(const VkDevice theDevice,
-                           const VkCommandPool theCommandPool,
-                           const VkCommandBufferLevel theCommandBufferLevel,
-                           VkCommandBuffer & outCommandBuffer
-                           )
-{
-	VkResult result;
-
-	const VkCommandBufferAllocateInfo commandBufferAllocateInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+	// We now submit the command buffer to the queue we created before, and we wait
+	// for its completition.
+	VkSubmitInfo submitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.pNext = nullptr,
-		.commandPool = theCommandPool,
-		.level = theCommandBufferLevel,
-		.commandBufferCount = 1
+		.waitSemaphoreCount = 0,
+		.pWaitSemaphores = nullptr,
+		.pWaitDstStageMask = nullptr,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &myCmdBufferInitialization,
+		.signalSemaphoreCount = 0,
+		.pSignalSemaphores = nullptr
 	};
 
-	VkCommandBuffer myCommandBuffer;
-	result = vkAllocateCommandBuffers(theDevice, &commandBufferAllocateInfo, &myCommandBuffer);
+	result = vkQueueSubmit(myQueue, 1, &submitInfo, VK_NULL_HANDLE);
 	assert(result == VK_SUCCESS);
 
-	outCommandBuffer = myCommandBuffer;
-	return true;
+	// Wait for the queue to complete its work.
+	// Note: in a "real world" application you wouldn't use this function, but you would
+	// use a semaphore (a pointer to which goes in the above VkSubmitInfo struct)
+	// that will get signalled once the queue completes all the previous commands.
+	result = vkQueueWaitIdle(myQueue);
+	assert(result == VK_SUCCESS);
+
+	std::cout << "\n---- Rendering Start ----" << std::endl;
+
+	/*
+	 * Now that initialization is complete, we can start our program's event loop!
+	 *
+	 * We'll process the SDL's events, and then send the drawing/present commands.
+	 * (in this demo we just clear the screen and present).
+	 *
+	 * Just for fun, we also collect and print some statistics about the average time
+	 * it takes to draw a single frame.
+	 * We also clear the screen to different colors for various frames, so that we
+	 * see something changing on the screen.
+	 */
+	SDL_Event sdlEvent;
+	bool quit = false;
+
+	// Just some variables for frame statistics and different colors.
+	long frameNumber = 0;
+	long frameMaxTime = LONG_MIN;
+	long frameMinTime = LONG_MAX;
+	long frameAvgTimeSum = 0;
+	long frameAvgTimeSumSquare = 0;
+	constexpr long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
+
+	constexpr int MAX_COLORS = 4;
+	constexpr int FRAMES_PER_COLOR = 120;	// How many frames to show each color.
+	static float screenColors[MAX_COLORS][3] = {
+	    {1.0f, 0.2f, 0.2f},
+	    {0.0f, 0.9f, 0.2f},
+	    {0.0f, 0.2f, 1.0f},
+	    {1.0f, 0.9f, 0.2f},
+	};
+
+	// The main event/render loop.
+	while(!quit)
+	{
+		// Process events for this frame
+		while(SDL_PollEvent(&sdlEvent))
+		{
+			if (sdlEvent.type == SDL_QUIT) {
+				quit = true;
+			}
+			if (sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
+				quit = true;
+			}
+		}
+
+		// Rendering code
+		if(!quit)
+		{
+			// Render various colors
+			float colR = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][0];
+			float colG = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][1];
+			float colB = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][2];
+
+			// Render a single frame
+			auto renderStartTime = std::chrono::high_resolution_clock::now();
+			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence, colR, colG, colB);
+			auto renderStopTime = std::chrono::high_resolution_clock::now();
+
+			// Compute frame time statistics
+			auto elapsedTimeUs = std::chrono::duration_cast<std::chrono::microseconds>(renderStopTime - renderStartTime).count();
+
+			frameMaxTime = std::max(frameMaxTime, elapsedTimeUs);
+			frameMinTime = std::min(frameMinTime, elapsedTimeUs);
+			frameAvgTimeSum += elapsedTimeUs;
+			frameAvgTimeSumSquare += elapsedTimeUs*elapsedTimeUs;
+
+			// Print statistics if necessary
+			if(frameNumber % FRAMES_PER_STAT == 0)
+			{
+				auto average = frameAvgTimeSum/FRAMES_PER_STAT;
+				auto stddev = std::sqrt(frameAvgTimeSumSquare/FRAMES_PER_STAT - average*average);
+				std::cout << "Frame time: average " << std::setw(6) << average
+				          << " us, maximum " << std::setw(6) << frameMaxTime
+				          << " us, minimum " << std::setw(6) << frameMinTime
+				          << " us, stddev " << (long)stddev
+				          << " (" << std::fixed << std::setprecision(2) << (stddev/average * 100.0f) << "%)"
+				          << std::endl;
+
+				frameMaxTime = LONG_MIN;
+				frameMinTime = LONG_MAX;
+				frameAvgTimeSum = 0;
+				frameAvgTimeSumSquare = 0;
+			}
+
+			frameNumber++;
+		}
+	}
+
+
+	/*
+	 * Deinitialization
+	 */
+	// We wait for pending operations to complete before starting to destroy stuff.
+	result = vkQueueWaitIdle(myQueue);
+	assert(result == VK_SUCCESS);
+
+	vkDestroyFence(myDevice, myPresentFence, nullptr);
+
+	// You don't need to call vkFreeCommandBuffers for all command buffers; all command buffers
+	// allocated from a command pool are released when the command pool is destroyed.
+	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
+
+	// Destroy the swapchain image's views.
+	for(auto imgView : mySwapchainImageViewsVector)
+		vkDestroyImageView(myDevice, imgView, nullptr);
+
+	// NOTE! DON'T destroy the swapchain images, because they are already destroyed
+	// during the destruction of the swapchain.
+	vkDestroySwapchainKHR(myDevice, mySwapchain, nullptr);
+
+	// There's no function for destroying a queue; all queues of a particular
+	// device are destroyed when the device is destroyed.
+	vkDestroyDevice(myDevice, nullptr);
+	vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
+	vkdemos::destroyDebugReportCallback(myInstance, myDebugReportCallback);
+	vkDestroyInstance(myInstance, nullptr);
+
+	// Quit SDL
+	SDL_DestroyWindow(window);
+	SDL_Quit();
+
+	return 0;
 }
 
 
@@ -997,7 +413,6 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, con
 	result = vkEndCommandBuffer(theCommandBuffer);
 	return true;
 }
-
 
 
 
@@ -1086,7 +501,6 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 	result = vkEndCommandBuffer(theCommandBuffer);
 	return true;
 }
-
 
 
 
@@ -1263,315 +677,4 @@ bool renderSingleFrame(const VkDevice theDevice,
 	vkDestroySemaphore(theDevice, imageAcquiredSemaphore, nullptr);
 	vkDestroySemaphore(theDevice, renderingCompletedSemaphore, nullptr);
 	return true;
-}
-
-
-
-
-/**
- * The good ol' main function.
- */
-int main(int argc, char* argv[])
-{
-	static int windowWidth = 800;
-	static int windowHeight = 600;
-	static const char * applicationName = "SdlVulkanDemo_01_clearscreen";
-	static const char * engineName = applicationName;
-
-	/*
-	 * SDL2 Initialization
-	 */
-	SDL_Window *window;
-	SDL_SysWMinfo info;
-
-	SDL_Init(SDL_INIT_VIDEO);
-
-	window = SDL_CreateWindow(
-		applicationName,
-		SDL_WINDOWPOS_UNDEFINED,
-		SDL_WINDOWPOS_UNDEFINED,
-		windowWidth,
-		windowHeight,
-		SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
-	);
-
-	SDL_VERSION(&info.version);   // initialize info structure with SDL version info
-
-	if(SDL_GetWindowWMInfo(window, &info))
-	{
-		// TODO add support for other windowing systems
-		if(info.subsystem != SDL_SYSWM_X11) {
-			std::cout << "!!! ERROR: Only X11 is supported in this demo for now." << std::endl;
-			exit(1);
-		}
-	}
-	else
-	{
-		std::cout << "!!! ERROR: Couldn't get window information: " << SDL_GetError() << std::endl;
-		exit(1);
-	}
-
-
-	/*
-	 * Do all the Vulkan goodies here.
-	 */
-	bool boolResult;
-	VkResult result;
-
-	// Vector of the layer names we want to enable on the Instance
-	std::vector<const char *> layersNamesToEnable;
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_threading");       // Enable all the standard validation layers that come with the VulkanSDK.
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
-	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
-	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
-	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
-
-	// Vector of the extension names we want to enable on the Instance
-	std::vector<const char *> extensionsNamesToEnable;
-	extensionsNamesToEnable.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
-	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-	extensionsNamesToEnable.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME); // TODO: add support for other windowing systems
-
-	// Create a VkInstance
-	VkInstance myInstance;
-	boolResult = createVkInstance(layersNamesToEnable, extensionsNamesToEnable, applicationName, engineName, myInstance);
-	assert(boolResult);
-
-	// Initialize the debug callback
-	VkDebugReportCallbackEXT myDebugReportCallback;
-	createDebugReportCallback(myInstance,
-		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
-		debugCallback,
-		myDebugReportCallback
-	);
-
-	// Choose a physical device from the instance
-	// For simplicity, just pick the first physical device listed (0).
-	VkPhysicalDevice myPhysicalDevice;
-	boolResult = chooseVkPhysicalDevice(myInstance, 0, myPhysicalDevice);
-	assert(boolResult);
-
-	// Create a VkSurfaceKHR
-	// TODO add support for other windowing systems
-	VkSurfaceKHR mySurface;
-	boolResult = createVkSurfaceXCB(myInstance, XGetXCBConnection(info.info.x11.display), static_cast<xcb_window_t>(info.info.x11.window), mySurface);
-	assert(boolResult);
-
-	// Create a VkDevice and its VkQueue
-	VkDevice myDevice;
-	VkQueue myQueue;
-	uint32_t myQueueFamilyIndex;
-	boolResult = createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, layersNamesToEnable, myDevice, myQueue, myQueueFamilyIndex);
-	assert(boolResult);
-
-	// Create a VkSwapchainKHR
-	VkSwapchainKHR mySwapchain;
-	VkFormat mySurfaceFormat;
-	boolResult = createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
-	assert(boolResult);
-
-	// Create the swapchain images and related views.
-	// (the views are not actually used in this demo, but since they'll be needed in the future
-	// to create the framebuffers, we'll create them anyway to show how to do it).
-	std::vector<VkImage> mySwapchainImagesVector;
-	std::vector<VkImageView> mySwapchainImageViewsVector;
-	boolResult = getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
-	assert(boolResult);
-
-	// Create a command pool, so that we can later allocate the command buffers.
-	VkCommandPool myCommandPool;
-	boolResult = createCommandPool(myDevice, myQueueFamilyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, myCommandPool);
-	assert(boolResult);
-
-
-	// Allocate a command buffer that will hold our initialization commands.
-	VkCommandBuffer myCmdBufferInitialization;
-	boolResult = allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferInitialization);
-	assert(boolResult);
-
-	// Allocate a command buffer that will hold our clear screen and present commands.
-	VkCommandBuffer myCmdBufferPresent;
-	boolResult = allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
-	assert(boolResult);
-
-	// We create a Fence object: this object will be used to synchronize
-	// the CPU thread with the GPU presentation rate, so that
-	// we don't do useless work on the cpu if the presentation rate
-	// is slower that the rendering rate.
-	// Note: in a "real" application, you would have multiple Fences
-	// (for example 2 or 3), so that the CPU doesn't wait on every frame
-	// but there's a bit of buffering going on.
-	VkFence myPresentFence;
-	VkFenceCreateInfo fenceCreateInfo = {
-	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-	    .pNext = nullptr,
-	    .flags = 0
-	};
-	result = vkCreateFence(myDevice, &fenceCreateInfo, nullptr, &myPresentFence);
-	assert(result == VK_SUCCESS);
-
-
-	/*
-	 * We completed the creation and allocation of all the resources we need!
-	 * Now it's time to build and submit the first command buffer that will contain
-	 * all the initialization commands, such as transitioning the images from
-	 * VK_IMAGE_LAYOUT_UNDEFINED to something sensible.
-	 */
-
-	// We fill the initialization command buffer with... the initialization commands.
-	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector);
-	assert(boolResult);
-
-	// We now submit the command buffer to the queue we created before, and we wait
-	// for its completition.
-	VkSubmitInfo submitInfo = {
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.pNext = nullptr,
-		.waitSemaphoreCount = 0,
-		.pWaitSemaphores = nullptr,
-		.pWaitDstStageMask = nullptr,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &myCmdBufferInitialization,
-		.signalSemaphoreCount = 0,
-		.pSignalSemaphores = nullptr
-	};
-
-	result = vkQueueSubmit(myQueue, 1, &submitInfo, VK_NULL_HANDLE);
-	assert(result == VK_SUCCESS);
-
-	// Wait for the queue to complete its work.
-	// Note: in a "real world" application you wouldn't use this function, but you would
-	// use a semaphore (a pointer to which goes in the above VkSubmitInfo struct)
-	// that will get signalled once the queue completes all the previous commands.
-	result = vkQueueWaitIdle(myQueue);
-	assert(result == VK_SUCCESS);
-
-	std::cout << "\n---- Rendering Start ----" << std::endl;
-
-	/*
-	 * Now that initialization is complete, we can start our program's event loop!
-	 *
-	 * We'll process the SDL's events, and then send the drawing/present commands.
-	 * (in this demo we just clear the screen and present).
-	 *
-	 * Just for fun, we also collect and print some statistics about the average time
-	 * it takes to draw a single frame.
-	 * We also clear the screen to different colors for various frames, so that we
-	 * see something changing on the screen.
-	 */
-	SDL_Event sdlEvent;
-	bool quit = false;
-
-	// Just some variables for frame statistics and different colors.
-	long frameNumber = 0;
-	long frameMaxTime = LONG_MIN;
-	long frameMinTime = LONG_MAX;
-	long frameAvgTimeSum = 0;
-	long frameAvgTimeSumSquare = 0;
-	constexpr long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
-
-	constexpr int MAX_COLORS = 4;
-	constexpr int FRAMES_PER_COLOR = 120;	// How many frames to show each color.
-	static float screenColors[MAX_COLORS][3] = {
-	    {1.0f, 0.2f, 0.2f},
-	    {0.0f, 0.9f, 0.2f},
-	    {0.0f, 0.2f, 1.0f},
-	    {1.0f, 0.9f, 0.2f},
-	};
-
-	// The main event/render loop.
-	while(!quit)
-	{
-		// Process events for this frame
-		while(SDL_PollEvent(&sdlEvent))
-		{
-			if (sdlEvent.type == SDL_QUIT) {
-				quit = true;
-			}
-			if (sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
-				quit = true;
-			}
-		}
-
-		// Rendering code
-		if(!quit)
-		{
-			// Render various colors
-			float colR = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][0];
-			float colG = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][1];
-			float colB = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][2];
-
-			// Render a single frame
-			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence, colR, colG, colB);
-			auto renderStopTime = std::chrono::high_resolution_clock::now();
-
-			// Compute frame time statistics
-			auto elapsedTimeUs = std::chrono::duration_cast<std::chrono::microseconds>(renderStopTime - renderStartTime).count();
-
-			frameMaxTime = std::max(frameMaxTime, elapsedTimeUs);
-			frameMinTime = std::min(frameMinTime, elapsedTimeUs);
-			frameAvgTimeSum += elapsedTimeUs;
-			frameAvgTimeSumSquare += elapsedTimeUs*elapsedTimeUs;
-
-			// Print statistics if necessary
-			if(frameNumber % FRAMES_PER_STAT == 0)
-			{
-				auto average = frameAvgTimeSum/FRAMES_PER_STAT;
-				auto stddev = std::sqrt(frameAvgTimeSumSquare/FRAMES_PER_STAT - average*average);
-				std::cout << "Frame time: average " << std::setw(6) << average
-				          << " us, maximum " << std::setw(6) << frameMaxTime
-				          << " us, minimum " << std::setw(6) << frameMinTime
-				          << " us, stddev " << (long)stddev
-				          << " (" << std::fixed << std::setprecision(2) << (stddev/average * 100.0f) << "%)"
-				          << std::endl;
-
-				frameMaxTime = LONG_MIN;
-				frameMinTime = LONG_MAX;
-				frameAvgTimeSum = 0;
-				frameAvgTimeSumSquare = 0;
-			}
-
-			frameNumber++;
-		}
-	}
-
-
-	/*
-	 * Deinitialization
-	 */
-	// We wait for pending operations to complete before starting to destroy stuff.
-	result = vkQueueWaitIdle(myQueue);
-	assert(result == VK_SUCCESS);
-
-	vkDestroyFence(myDevice, myPresentFence, nullptr);
-
-	// You don't need to call vkFreeCommandBuffers for all command buffers; all command buffers
-	// allocated from a command pool are released when the command pool is destroyed.
-	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
-
-	// Destroy the swapchain image's views.
-	for(auto imgView : mySwapchainImageViewsVector)
-		vkDestroyImageView(myDevice, imgView, nullptr);
-
-	// NOTE! DON'T destroy the swapchain images, because they are already destroyed
-	// during the destruction of the swapchain.
-	vkDestroySwapchainKHR(myDevice, mySwapchain, nullptr);
-
-	// There's no function for destroying a queue; all queues of a particular
-	// device are destroyed when the device is destroyed.
-	vkDestroyDevice(myDevice, nullptr);
-	vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
-	destroyDebugReportCallback(myInstance, myDebugReportCallback);
-	vkDestroyInstance(myInstance, nullptr);
-
-	// Quit SDL
-	SDL_DestroyWindow(window);
-	SDL_Quit();
-
-	return 0;
 }
