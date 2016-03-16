@@ -11,6 +11,7 @@ File and function list:
 - 00_utils.h
 
 	- `VkResultToString`: converts a VkResult into its ASCII string representation.
+	- `sdl2Initialization`: executes SDL2 initialization and creates a window.
 
 - 01_createVkInstance.h
 
@@ -24,7 +25,8 @@ File and function list:
 
 - 03_createVkSurface.h
 
-	- `createVkSurfaceXCB`: creates a VkSurface from a XCB connection and window.
+	- `createVkSurface`: creates a VkSurface from a SDL_SysWMinfo context.
+	- `createVkSurfaceXCB`: creates a VkSurface from an XCB connection and window.
 
 - 04_chooseVkPhysicalDevice.h
 

@@ -4,14 +4,14 @@
 // TODO add support for other windowing systems
 #define VK_USE_PLATFORM_XCB_KHR
 #include <vulkan/vulkan.h>
+#include <SDL2/SDL_syswm.h>
+#include <X11/Xlib-xcb.h> // for XGetXCBConnection()
 #include <cassert>
 
 namespace vkdemos {
 
 /*
- * Create a VkSurfaceKHR from the specified instance.
- *
- * This example is currently limited to XCB only.
+ * Create a VkSurfaceKHR from an XCB connection and window.
  */
 bool createVkSurfaceXCB(const VkInstance theInstance, xcb_connection_t * const xcbConnection, const xcb_window_t & xcbWindow, VkSurfaceKHR & outInstance)
 {
@@ -37,6 +37,19 @@ bool createVkSurfaceXCB(const VkInstance theInstance, xcb_connection_t * const x
 
 	outInstance = mySurface;
 	return true;
+}
+
+
+/*
+ * Create a VkSurfaceKHR from the specified instance and SDL2 SysWmInfo.
+ */
+bool createVkSurface(const VkInstance theInstance, const SDL_SysWMinfo & theSysWmInfo, VkSurfaceKHR & outInstance)
+{
+	// TODO add support for other windowing systems.
+	if(theSysWmInfo.subsystem == SDL_SYSWM_X11)
+		return createVkSurfaceXCB(theInstance, XGetXCBConnection(theSysWmInfo.info.x11.display), static_cast<xcb_window_t>(theSysWmInfo.info.x11.window), outInstance);
+	else
+		return false;
 }
 
 }

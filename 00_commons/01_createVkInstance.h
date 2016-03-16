@@ -37,7 +37,7 @@ bool createVkInstance(const std::vector<const char *> & layerNamesToEnable,
 		.applicationVersion = 1,                // Application version
 		.pEngineName = engineName,              // Engine name (UTF8, null terminated string)
 		.engineVersion = 1,                     // Engine version
-		.apiVersion = VK_API_VERSION,           // Vulkan version the application expects to use;
+		.apiVersion = VK_MAKE_VERSION(1, 0, 3), // Vulkan version the application expects to use;
 		                                        // if = 0, this field is ignored; otherwise, if the implementation
 		                                        // doesn't support the specified version, VK_ERROR_INCOMPATIBLE_DRIVER is returned.
 	};

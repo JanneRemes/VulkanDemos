@@ -13,10 +13,6 @@
 #include "../00_commons/07_commandPoolAndBuffer.h"
 
 // Includes for this file
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_syswm.h>
-#include <X11/Xlib-xcb.h> // for XGetXCBConnection()
-
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -45,49 +41,25 @@ int main(int argc, char* argv[])
 	static const char * applicationName = "SdlVulkanDemo_01_clearscreen";
 	static const char * engineName = applicationName;
 
+	bool boolResult;
+	VkResult result;
+
 	/*
 	 * SDL2 Initialization
 	 */
-	SDL_Window *window;
-	SDL_SysWMinfo info;
+	SDL_Window *mySdlWindow;
+	SDL_SysWMinfo mySdlSysWmInfo;
 
-	SDL_Init(SDL_INIT_VIDEO);
-
-	window = SDL_CreateWindow(
-		applicationName,
-		SDL_WINDOWPOS_UNDEFINED,
-		SDL_WINDOWPOS_UNDEFINED,
-		windowWidth,
-		windowHeight,
-		SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
-	);
-
-	SDL_VERSION(&info.version);   // initialize info structure with SDL version info
-
-	if(SDL_GetWindowWMInfo(window, &info))
-	{
-		// TODO add support for other windowing systems
-		if(info.subsystem != SDL_SYSWM_X11) {
-			std::cout << "!!! ERROR: Only X11 is supported in this demo for now." << std::endl;
-			exit(1);
-		}
-	}
-	else
-	{
-		std::cout << "!!! ERROR: Couldn't get window information: " << SDL_GetError() << std::endl;
-		exit(1);
-	}
-
+	boolResult = vkdemos::utils::sdl2Initialization(applicationName, windowWidth, windowHeight, mySdlWindow, mySdlSysWmInfo);
+	assert(boolResult);
 
 	/*
 	 * Do all the Vulkan goodies here.
 	 */
-	bool boolResult;
-	VkResult result;
 
 	// Vector of the layer names we want to enable on the Instance
 	std::vector<const char *> layersNamesToEnable;
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_threading");       // Enable all the standard validation layers that come with the VulkanSDK.
+	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_threading");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
 	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
@@ -125,7 +97,7 @@ int main(int argc, char* argv[])
 	// Create a VkSurfaceKHR
 	// TODO add support for other windowing systems
 	VkSurfaceKHR mySurface;
-	boolResult = vkdemos::createVkSurfaceXCB(myInstance, XGetXCBConnection(info.info.x11.display), static_cast<xcb_window_t>(info.info.x11.window), mySurface);
+	boolResult = vkdemos::createVkSurface(myInstance, mySdlSysWmInfo, mySurface);
 	assert(boolResult);
 
 	// Create a VkDevice and its VkQueue
@@ -337,7 +309,7 @@ int main(int argc, char* argv[])
 	vkDestroyInstance(myInstance, nullptr);
 
 	// Quit SDL
-	SDL_DestroyWindow(window);
+	SDL_DestroyWindow(mySdlWindow);
 	SDL_Quit();
 
 	return 0;
