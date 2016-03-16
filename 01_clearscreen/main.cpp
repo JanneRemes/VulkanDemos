@@ -596,12 +596,11 @@ bool renderSingleFrame(const VkDevice theDevice,
 	else if(result != VK_SUBOPTIMAL_KHR)
 		assert(result == VK_SUCCESS);
 
-
 	/*
 	 * The end!
 	 * ... or not?
 	 *
-	 * Unfortunately, on current experimental Nvidia drivers (as of 2016-03-05),
+	 * Unfortunately, on current experimental Nvidia drivers (as of 2016-04-16),
 	 * vkAcquireNextImageKHR is broken in that it never waits for a new image to be available;
 	 * this means that we can't use it to throttle our rendering rate.
 	 * Moreover, at least on Linux/X11, this causes the system to hang up unresponsive;
@@ -613,37 +612,10 @@ bool renderSingleFrame(const VkDevice theDevice,
 	 * be at 100% usage. Not that is a bug or a problem (you tipically won't be calling
 	 * vkQueueWaitIdle every frame), but it's a bit annoying.
 	 *
-	 * To solve this "problem", we "simulate" vkQueueWaitIdle using a VkFence.
-	 * The way it works is that we call vkQueueSubmit, but we don't pass any command buffers:
-	 * we just want to be able to signal our fence.
-	 * We then immediately wait on the same fence; this puts the CPU thread to sleep,
-	 * and prevents it from spinning at 100% usage.
-	 *
 	 * [1] https://vulkan.lunarg.com/app/issues/56ca3a477ef24d0001787448
 	 * [2] https://www.reddit.com/r/vulkan/comments/48oe7b/problems_with_fences_vkacquirenextimagekhr_and/?ref=share&ref_source=link
 	 */
-	{
-		VkFence myQueueCompleteFence;
-		VkFenceCreateInfo fenceCreateInfo = {
-			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-			.pNext = nullptr,
-			.flags = 0
-		};
-		// Note: creating/destroying a VkFence is not something you would want to do
-		// every frame; in this demo we do it to simplify code, and because this
-		// is just a "dirty hack" to work on experimental Nvidia drivers that will
-		// probably be removed in the near future.
-		result = vkCreateFence(theDevice, &fenceCreateInfo, nullptr, &myQueueCompleteFence);
-		assert(result == VK_SUCCESS);
-
-		vkQueueSubmit(theQueue, 0, nullptr, myQueueCompleteFence);	// We just want to signal the fence.
-
-		result = vkWaitForFences(theDevice, 1, &myQueueCompleteFence, VK_TRUE, UINT64_MAX);
-		assert(result == VK_SUCCESS);
-
-		vkDestroyFence(theDevice, myQueueCompleteFence, nullptr);
-	}
-
+	vkQueueWaitIdle(theQueue);
 
 	// Cleanup
 	vkDestroySemaphore(theDevice, imageAcquiredSemaphore, nullptr);
