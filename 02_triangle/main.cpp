@@ -1,4 +1,4 @@
-// Demo 01: clearscreen.
+// Demo 02: Triangle.
 
 #define VK_USE_PLATFORM_XCB_KHR
 #include <vulkan/vulkan.h>
@@ -39,7 +39,7 @@ int main(int argc, char* argv[])
 {
 	static int windowWidth = 800;
 	static int windowHeight = 600;
-	static const char * applicationName = "SdlVulkanDemo_01_clearscreen";
+	static const char * applicationName = "SdlVulkanDemo_02_triangle";
 	static const char * engineName = applicationName;
 
 	bool boolResult;
@@ -55,10 +55,10 @@ int main(int argc, char* argv[])
 	assert(boolResult);
 
 	/*
-	 * Do all the Vulkan goodies here.
+	 * Basic Vulkan initialization; we create a VkInstance, VkPhysicalDevice, VkDevice & VkQueue, and a swapchain.
+	 * For more informations on this process, refer to Demo 01 and to the implementations of the various functions
+	 * in directory "00_commons".
 	 */
-
-	// Vector of the layer names we want to enable on the Instance
 	std::vector<const char *> layersNamesToEnable;
 	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_threading");
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
@@ -70,18 +70,15 @@ int main(int argc, char* argv[])
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
 	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
 
-	// Vector of the extension names we want to enable on the Instance
 	std::vector<const char *> extensionsNamesToEnable;
 	extensionsNamesToEnable.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
 	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
 	extensionsNamesToEnable.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME); // TODO: add support for other windowing systems
 
-	// Create a VkInstance
 	VkInstance myInstance;
 	boolResult = vkdemos::createVkInstance(layersNamesToEnable, extensionsNamesToEnable, applicationName, engineName, myInstance);
 	assert(boolResult);
 
-	// Initialize the debug callback
 	VkDebugReportCallbackEXT myDebugReportCallback;
 	vkdemos::createDebugReportCallback(myInstance,
 		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
@@ -89,61 +86,42 @@ int main(int argc, char* argv[])
 		myDebugReportCallback
 	);
 
-	// Choose a physical device from the instance
-	// For simplicity, just pick the first physical device listed (0).
 	VkPhysicalDevice myPhysicalDevice;
 	boolResult = vkdemos::chooseVkPhysicalDevice(myInstance, 0, myPhysicalDevice);
 	assert(boolResult);
 
-	// Create a VkSurfaceKHR
 	VkSurfaceKHR mySurface;
 	boolResult = vkdemos::createVkSurface(myInstance, mySdlSysWmInfo, mySurface);
 	assert(boolResult);
 
-	// Create a VkDevice and its VkQueue
 	VkDevice myDevice;
 	VkQueue myQueue;
 	uint32_t myQueueFamilyIndex;
 	boolResult = vkdemos::createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, layersNamesToEnable, myDevice, myQueue, myQueueFamilyIndex);
 	assert(boolResult);
 
-	// Create a VkSwapchainKHR
 	VkSwapchainKHR mySwapchain;
 	VkFormat mySurfaceFormat;
 	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
 	assert(boolResult);
 
-	// Create the swapchain images and related views.
-	// (the views are not actually used in this demo, but since they'll be needed in the future
-	// to create the framebuffers, we'll create them anyway to show how to do it).
 	std::vector<VkImage> mySwapchainImagesVector;
 	std::vector<VkImageView> mySwapchainImageViewsVector;
 	boolResult = vkdemos::getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
 	assert(boolResult);
 
-	// Create a command pool, so that we can later allocate the command buffers.
 	VkCommandPool myCommandPool;
 	boolResult = vkdemos::createCommandPool(myDevice, myQueueFamilyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, myCommandPool);
 	assert(boolResult);
 
-
-	// Allocate a command buffer that will hold our initialization commands.
 	VkCommandBuffer myCmdBufferInitialization;
 	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferInitialization);
 	assert(boolResult);
 
-	// Allocate a command buffer that will hold our clear screen and present commands.
 	VkCommandBuffer myCmdBufferPresent;
 	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
 	assert(boolResult);
 
-	// We create a Fence object: this object will be used to synchronize
-	// the CPU thread with the GPU presentation rate, so that
-	// we don't do useless work on the cpu if the presentation rate
-	// is slower that the rendering rate.
-	// Note: in a "real" application, you would have multiple Fences
-	// (for example 2 or 3), so that the CPU doesn't wait on every frame
-	// but there's a bit of buffering going on.
 	VkFence myPresentFence;
 	VkFenceCreateInfo fenceCreateInfo = {
 	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
