@@ -32,7 +32,6 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const VkCommandBuffer thePresentCmdBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkFence thePresentFence, const float clearColorR, const float clearColorG, const float clearColorB);
 
 
-
 /**
  * Creates an image and a view to use as our depth buffer.
  * The image is created with layout VK_IMAGE_LAYOUT_UNDEFINED,
@@ -40,6 +39,7 @@ bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const V
  */
 bool createDepthBuffer(const VkDevice theDevice,
                        const VkFormat theDepthBufferFormat,
+                       const VkPhysicalDeviceMemoryProperties theMemoryProperties,
                        const int windowWidth,
                        const int windowHeight,
                        VkImage & outDepthImage,
@@ -52,10 +52,9 @@ bool createDepthBuffer(const VkDevice theDevice,
 	VkImageView myDepthImageView;
 	VkDeviceMemory myDepthMemory;
 
-	//const VkFormat depthBufferFormat = VK_FORMAT_D16_UNORM;
-
 	/*
 	 * Create the VkImage that represents our depth image.
+	 * TODO explain difference between the creation of a VkImage and the allocation of the backing memory.
 	 */
 	const VkImageCreateInfo imageCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -89,36 +88,14 @@ bool createDepthBuffer(const VkDevice theDevice,
 	VkMemoryRequirements memoryRequirements;
 	vkGetImageMemoryRequirements(theDevice, myDepthImage, &memoryRequirements);
 
-	int memoryTypeIndex = -1;
-	/*pass = memory_type_from_properties(demo, memoryRequirements.memoryTypeBits,
-		0,
-		&mem_alloc.memoryTypeIndex);
-	assert(pass);*/
-
-	/*static bool memory_type_from_properties(struct demo *demo, uint32_t typeBits,
-											VkFlags requirements_mask,
-											uint32_t *typeIndex) {
-		// Search memtypes to find first index with those properties
-		for (uint32_t i = 0; i < 32; i++) {
-			if ((typeBits & 1) == 1) {
-				// Type is available, does it match user properties?
-				if ((demo->memory_properties.memoryTypes[i].propertyFlags &
-					 requirements_mask) == requirements_mask) {
-					*typeIndex = i;
-					return true;
-				}
-			}
-			typeBits >>= 1;
-		}
-		// No memory types matched, return failure
-		return false;
-	}*/
-
+	// Find an appropriate memory type with all the requirements for our depth buffer's image.
+	int memoryTypeIndex = vkdemos::utils::findMemoryTypeWithProperties(theMemoryProperties, memoryRequirements.memoryTypeBits, 0);
 	if(memoryTypeIndex < 0) {
 		std::cout << "!!! ERROR: Can't find a memory type to hold the depth buffer image." << std::endl;
 		return false;
 	}
 
+	// Allocate memory for the image.
 	VkMemoryAllocateInfo memoryAllocateInfo = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.pNext = nullptr,
@@ -289,15 +266,14 @@ int main(int argc, char* argv[])
 
 
 
-
-
-
+	VkPhysicalDeviceMemoryProperties myMemoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(myPhysicalDevice, &myMemoryProperties);
 
 	// Create the Depth Buffer's Image and View.
 	VkImage myDepthImage;
 	VkImageView myDepthImageView;
 	VkDeviceMemory myDepthMemory;
-	boolResult = createDepthBuffer(myDevice, VK_FORMAT_D16_UNORM, windowWidth, windowHeight, myDepthImage, myDepthImageView, myDepthMemory);
+	boolResult = createDepthBuffer(myDevice, VK_FORMAT_D16_UNORM, myMemoryProperties, windowWidth, windowHeight, myDepthImage, myDepthImageView, myDepthMemory);
 	assert(boolResult);
 
 
@@ -538,6 +514,7 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	 * Prepare the depth buffer's image, transitioning it from VK_IMAGE_LAYOUT_UNDEFINED
 	 * to VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
 	 */
+	imageMemoryBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	imageMemoryBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;

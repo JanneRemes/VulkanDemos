@@ -53,7 +53,6 @@ std::string VkResultToString(const VkResult result)
 
 
 
-
 /**
  * Performs basic SDL2 window initialization.
  */
@@ -98,6 +97,36 @@ bool sdl2Initialization(const std::string & windowTitle,
 	return true;
 }
 
+
+
+/**
+ * Search a memory type with the required properties.
+ * @param theMemoryProperties memory properties of the Physical Device from where we would like to allocate our object.
+ * @param memoryTypeBits memoryTypeBits field from the VkMemoryRequirements of the object we want to allocate.
+ * @param requiredMemoryProperties additional properties we want the memory type to have.
+ * @return A value >= 0 as the index in VkPhysicalDeviceMemoryProperties::memoryTypes, or -1 if a matching memory type couldn't be found.
+ */
+int findMemoryTypeWithProperties(const VkPhysicalDeviceMemoryProperties theMemoryProperties,
+                                 const uint32_t memoryTypeBits,
+                                 const VkMemoryPropertyFlags requiredMemoryProperties)
+{
+	uint32_t typeBits = memoryTypeBits;
+
+	uint32_t len = std::min(theMemoryProperties.memoryTypeCount, 32u);
+	for(uint32_t i = 0; i < len; i++)
+	{
+		if((typeBits & 1) == 1)
+		{
+			// Type is available, does it match user properties?
+			if((theMemoryProperties.memoryTypes[i].propertyFlags & requiredMemoryProperties) == requiredMemoryProperties)
+				return (int)i;
+		}
+
+		typeBits >>= 1;
+	}
+
+	return -1;
+}
 
 }}	// vkdemos::utils
 
