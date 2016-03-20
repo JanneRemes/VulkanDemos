@@ -27,9 +27,164 @@
 /*
  * Prototypes for functions defined in this file.
  */
-bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector);
+bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkImage theDepthImage);
 bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkImage theCurrentSwapchainImage, const float clearColorR, const float clearColorG, const float clearColorB);
 bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const VkCommandBuffer thePresentCmdBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkFence thePresentFence, const float clearColorR, const float clearColorG, const float clearColorB);
+
+
+
+/**
+ * Creates an image and a view to use as our depth buffer.
+ * The image is created with layout VK_IMAGE_LAYOUT_UNDEFINED,
+ * and must be appropriately transitioned to VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
+ */
+bool createDepthBuffer(const VkDevice theDevice,
+                       const VkFormat theDepthBufferFormat,
+                       const int windowWidth,
+                       const int windowHeight,
+                       VkImage & outDepthImage,
+                       VkImageView & outDepthImageView,
+                       VkDeviceMemory & outDepthMemory
+                       )
+{
+	VkResult result;
+	VkImage myDepthImage;
+	VkImageView myDepthImageView;
+	VkDeviceMemory myDepthMemory;
+
+	//const VkFormat depthBufferFormat = VK_FORMAT_D16_UNORM;
+
+	/*
+	 * Create the VkImage that represents our depth image.
+	 */
+	const VkImageCreateInfo imageCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = theDepthBufferFormat,
+		.extent = {(uint32_t)windowWidth, (uint32_t)windowHeight, 1},
+		.mipLevels = 1,
+		.arrayLayers = 1,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+	    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,  // access exclusive to a single queue family at a time
+	    .queueFamilyIndexCount = 0,                // unused in sharing mode exclusive
+	    .pQueueFamilyIndices = nullptr,            // unused in sharing mode exclusive
+	    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	};
+
+	result = vkCreateImage(theDevice, &imageCreateInfo, nullptr, &myDepthImage);
+	assert(result == VK_SUCCESS);
+
+	/*
+	 * Allocate memory for the image.
+	 * Before doing that, we need to query the device for a suitable memory pool
+	 * that is compatible with the memory requirements of our image.
+	 * TODO explain better.
+	 */
+
+	// Get the memory requirements for our depth image.
+	VkMemoryRequirements memoryRequirements;
+	vkGetImageMemoryRequirements(theDevice, myDepthImage, &memoryRequirements);
+
+	int memoryTypeIndex = -1;
+	/*pass = memory_type_from_properties(demo, memoryRequirements.memoryTypeBits,
+		0,
+		&mem_alloc.memoryTypeIndex);
+	assert(pass);*/
+
+	/*static bool memory_type_from_properties(struct demo *demo, uint32_t typeBits,
+											VkFlags requirements_mask,
+											uint32_t *typeIndex) {
+		// Search memtypes to find first index with those properties
+		for (uint32_t i = 0; i < 32; i++) {
+			if ((typeBits & 1) == 1) {
+				// Type is available, does it match user properties?
+				if ((demo->memory_properties.memoryTypes[i].propertyFlags &
+					 requirements_mask) == requirements_mask) {
+					*typeIndex = i;
+					return true;
+				}
+			}
+			typeBits >>= 1;
+		}
+		// No memory types matched, return failure
+		return false;
+	}*/
+
+	if(memoryTypeIndex < 0) {
+		std::cout << "!!! ERROR: Can't find a memory type to hold the depth buffer image." << std::endl;
+		return false;
+	}
+
+	VkMemoryAllocateInfo memoryAllocateInfo = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext = nullptr,
+		.allocationSize = memoryRequirements.size,
+		.memoryTypeIndex = (uint32_t)memoryTypeIndex,
+	};
+
+	result = vkAllocateMemory(theDevice, &memoryAllocateInfo, nullptr, &myDepthMemory);
+	assert(result == VK_SUCCESS);
+
+	/*
+	 * Bind the allocated memory to the depth image.
+	 * TODO explain
+	 */
+	result = vkBindImageMemory(theDevice, myDepthImage, myDepthMemory, 0);
+	assert(result == VK_SUCCESS);
+
+	/*
+	 * Create a View for the depth image.
+	 */
+	VkImageViewCreateInfo imageViewCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.image = myDepthImage,
+		.format = theDepthBufferFormat,
+		.subresourceRange = {
+			.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1
+		},
+		.components = {
+			.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+			.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+			.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+			.a = VK_COMPONENT_SWIZZLE_IDENTITY
+		},
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+	};
+
+	result = vkCreateImageView(theDevice, &imageViewCreateInfo, nullptr, &myDepthImageView);
+	assert(result == VK_SUCCESS);
+
+	outDepthImage = myDepthImage;
+	outDepthImageView = myDepthImageView;
+	outDepthMemory = myDepthMemory;
+	return true;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 /**
@@ -132,6 +287,26 @@ int main(int argc, char* argv[])
 	assert(result == VK_SUCCESS);
 
 
+
+
+
+
+
+
+	// Create the Depth Buffer's Image and View.
+	VkImage myDepthImage;
+	VkImageView myDepthImageView;
+	VkDeviceMemory myDepthMemory;
+	boolResult = createDepthBuffer(myDevice, VK_FORMAT_D16_UNORM, windowWidth, windowHeight, myDepthImage, myDepthImageView, myDepthMemory);
+	assert(boolResult);
+
+
+
+
+
+
+
+
 	/*
 	 * We completed the creation and allocation of all the resources we need!
 	 * Now it's time to build and submit the first command buffer that will contain
@@ -140,7 +315,7 @@ int main(int argc, char* argv[])
 	 */
 
 	// We fill the initialization command buffer with... the initialization commands.
-	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector);
+	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector, myDepthImage);
 	assert(boolResult);
 
 	// We now submit the command buffer to the queue we created before, and we wait
@@ -265,28 +440,26 @@ int main(int argc, char* argv[])
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
 
-	vkDestroyFence(myDevice, myPresentFence, nullptr);
+	// Destroy View, Image and release memory of our depth buffer.
+	vkDestroyImageView(myDevice, myDepthImageView, nullptr);
+	vkDestroyImage(myDevice, myDepthImage, nullptr);
+	vkFreeMemory(myDevice, myDepthMemory, nullptr);
 
-	// You don't need to call vkFreeCommandBuffers for all command buffers; all command buffers
-	// allocated from a command pool are released when the command pool is destroyed.
+	/*
+	 * For more informations on the following commands, refer to Demo 01.
+	 */
+	vkDestroyFence(myDevice, myPresentFence, nullptr);
 	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
 
-	// Destroy the swapchain image's views.
 	for(auto imgView : mySwapchainImageViewsVector)
 		vkDestroyImageView(myDevice, imgView, nullptr);
 
-	// NOTE! DON'T destroy the swapchain images, because they are already destroyed
-	// during the destruction of the swapchain.
 	vkDestroySwapchainKHR(myDevice, mySwapchain, nullptr);
-
-	// There's no function for destroying a queue; all queues of a particular
-	// device are destroyed when the device is destroyed.
 	vkDestroyDevice(myDevice, nullptr);
 	vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
 	vkdemos::destroyDebugReportCallback(myInstance, myDebugReportCallback);
 	vkDestroyInstance(myInstance, nullptr);
 
-	// Quit SDL
 	SDL_DestroyWindow(mySdlWindow);
 	SDL_Quit();
 
@@ -301,7 +474,10 @@ int main(int argc, char* argv[])
  * The commands consist in just a bunch of CmdPipelineBarrier that transition the
  * swapchain images from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR.
  */
-bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector)
+bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer,
+                                     const std::vector<VkImage> & theSwapchainImagesVector,
+                                     const VkImage theDepthImage
+                                     )
 {
 	VkResult result;
 
@@ -356,6 +532,26 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, con
 			&imageMemoryBarrier // pImageMemoryBarriers
 		);
 	}
+
+
+	/*
+	 * Prepare the depth buffer's image, transitioning it from VK_IMAGE_LAYOUT_UNDEFINED
+	 * to VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
+	 */
+	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	imageMemoryBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+	imageMemoryBarrier.image = theDepthImage;
+
+	vkCmdPipelineBarrier(theCommandBuffer, srcStageMask, dstStageMask,
+		0,         // dependencyFlags
+		0,         // memoryBarrierCount
+		nullptr,   // pMemoryBarriers
+		0,         // bufferMemoryBarrierCount
+		nullptr,   // pBufferMemoryBarriers
+		1,         // imageMemoryBarrierCount
+		&imageMemoryBarrier // pImageMemoryBarriers
+	);
 
 	/*
 	 * End recording of the command buffer
