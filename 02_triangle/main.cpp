@@ -150,6 +150,45 @@ bool createDepthBuffer(const VkDevice theDevice,
 
 
 
+
+
+/*
+ * create framebuffer
+ *
+ */
+bool createFramebuffer(const VkDevice theDevice,
+                       const VkRenderPass theRenderPass,
+                       const std::vector<VkImageView> & theViewAttachmentsVector,
+                       const int width,
+                       const int height,
+                       VkFramebuffer & outFramebuffer
+                       )
+{
+	VkResult result;
+
+	const VkFramebufferCreateInfo framebufferCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.renderPass = theRenderPass,
+		.attachmentCount = (uint32_t)theViewAttachmentsVector.size(),
+		.pAttachments = theViewAttachmentsVector.data(),
+		.width = (uint32_t)width,
+		.height = (uint32_t)height,
+		.layers = 1,
+	};
+
+	VkFramebuffer myFramebuffer;
+	result = vkCreateFramebuffer(theDevice, &framebufferCreateInfo, nullptr, &myFramebuffer);
+	assert(result == VK_SUCCESS);
+
+	outFramebuffer = myFramebuffer;
+	return true;
+}
+
+
+
+
 /*
  * Create renderpass
  *
@@ -237,52 +276,71 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 
 
 
-
-
-
-
-
-
-
-
-
 /*
- * create framebuffer
+ * create vertex buffer
  *
  */
-bool createFramebuffer(const VkDevice theDevice,
-                               const VkRenderPass theRenderPass,
-                               const std::vector<VkImageView> & theViewAttachmentsVector,
-                               const int width,
-		                       const int height,
-                               VkFramebuffer & outFramebuffer
-                               )
+bool createAndAllocateBuffer(const VkDevice theDevice,
+                             const VkPhysicalDeviceMemoryProperties theMemoryProperties,
+                             const VkBufferUsageFlags bufferUsage,
+                             const VkDeviceSize bufferSize,
+                             const VkMemoryPropertyFlags requiredMemoryProperties,
+                             VkBuffer & outBuffer,
+                             VkDeviceMemory & outBufferMemory
+                             )
 {
 	VkResult result;
 
-	const VkFramebufferCreateInfo framebufferCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+	// Create the buffer.
+	const VkBufferCreateInfo bufferCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.renderPass = theRenderPass,
-		.attachmentCount = (uint32_t)theViewAttachmentsVector.size(),
-		.pAttachments = theViewAttachmentsVector.data(),
-		.width = (uint32_t)width,
-		.height = (uint32_t)height,
-		.layers = 1,
+		.size = bufferSize,
+		.usage = bufferUsage,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,  // access exclusive to a single queue family at a time
+		.queueFamilyIndexCount = 0,                // unused in sharing mode exclusive
+		.pQueueFamilyIndices = nullptr,            // unused in sharing mode exclusive
 	};
 
-	VkFramebuffer myFramebuffer;
-	result = vkCreateFramebuffer(theDevice, &framebufferCreateInfo, nullptr, &myFramebuffer);
+	VkBuffer myBuffer;
+	result = vkCreateBuffer(theDevice, &bufferCreateInfo, nullptr, &myBuffer);
 	assert(result == VK_SUCCESS);
 
-	outFramebuffer = myFramebuffer;
+	// Get memory requirements for the buffer.
+	VkMemoryRequirements memoryRequirements;
+	vkGetBufferMemoryRequirements(theDevice, myBuffer, &memoryRequirements);
+
+	// Find an appropriate memory type with all the requirements for our buffer
+	int memoryTypeIndex = vkdemos::utils::findMemoryTypeWithProperties(theMemoryProperties, memoryRequirements.memoryTypeBits, requiredMemoryProperties);
+	if(memoryTypeIndex < 0) {
+		std::cout << "!!! ERROR: Can't find a memory type to hold the buffer." << std::endl;
+		return false;
+	}
+
+	// Allocate memory for the buffer.
+	const VkMemoryAllocateInfo memoryAllocateInfo = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext = nullptr,
+		.allocationSize = memoryRequirements.size,
+		.memoryTypeIndex = (uint32_t)memoryTypeIndex,
+	};
+
+	VkDeviceMemory myBufferMemory;
+	result = vkAllocateMemory(theDevice, &memoryAllocateInfo, nullptr, &myBufferMemory);
+	assert(result == VK_SUCCESS);
+
+	/*
+	 * Bind the allocated memory to the depth image.
+	 * TODO explain
+	 */
+	result = vkBindBufferMemory(theDevice, myBuffer, myBufferMemory, 0);
+	assert(result == VK_SUCCESS);
+
+	outBuffer = myBuffer;
+	outBufferMemory = myBufferMemory;
 	return true;
 }
-
-
-
-
 
 
 
@@ -421,6 +479,27 @@ int main(int argc, char* argv[])
 	}
 
 
+	// Create the vertex buffer.
+
+	const size_t vertexBufferSize = 100;
+	VkBuffer myVertexBuffer;
+	VkDeviceMemory myVertexBufferMemory;
+	boolResult = createAndAllocateBuffer(myDevice, myMemoryProperties, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBufferSize, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, myVertexBuffer, myVertexBufferMemory);
+	assert(boolResult);
+
+	/*
+	result = vkMapMemory(myDevice, myVertexBufferMemory, 0, mem_alloc.allocationSize, 0, &data);
+	assert(result == VK_SUCCESS);
+
+	memcpy(data, vb, sizeof(vb));
+
+	vkUnmapMemory(myDevice, myVertexBufferMemory);
+	*/
+
+
+
+
+
 
 	/*
 	 * We completed the creation and allocation of all the resources we need!
@@ -554,6 +633,17 @@ int main(int argc, char* argv[])
 	// We wait for pending operations to complete before starting to destroy stuff.
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
+
+	// Destroy vertex buffer and free its memory.
+	vkDestroyBuffer(myDevice, myVertexBuffer, nullptr);
+	vkFreeMemory(myDevice, myVertexBufferMemory, nullptr);
+
+	// Destroy framebuffers.
+	for(auto framebuffer : myFramebuffersVector)
+		vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
+
+	// Destroy renderpass.
+	vkDestroyRenderPass(myDevice, myRenderPass, nullptr);
 
 	// Destroy View, Image and release memory of our depth buffer.
 	vkDestroyImageView(myDevice, myDepthImageView, nullptr);
