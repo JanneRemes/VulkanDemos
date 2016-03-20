@@ -150,9 +150,104 @@ bool createDepthBuffer(const VkDevice theDevice,
 
 
 
+/*
+ * Create renderpass
+ *
+ * NOTE: this function is relative to this demo, and not generic enough to be in commons.
+ *
+ * TODO: document the various structs.
+ */
+bool createTriangleDemoRenderPass(const VkDevice theDevice,
+                                  const VkFormat theSwapchainImagesFormat,
+                                  const VkFormat theDepthBufferFormat,
+                                  VkRenderPass & outRenderPass)
+{
+	VkResult result;
+
+	const VkAttachmentDescription attachments[2] = {
+		[0] = {
+			.flags = 0,
+			.format = theSwapchainImagesFormat,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		},
+		[1] = {
+			.flags = 0,
+			.format = theDepthBufferFormat,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		},
+	};
+
+	const VkAttachmentReference colorAttachmentReference = {
+		.attachment = 0,
+		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	};
+	const VkAttachmentReference depthAttachmentReference = {
+		.attachment = 1,
+		.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+	};
+
+	const VkSubpassDescription subpass = {
+		.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+		.flags = 0,
+		.inputAttachmentCount = 0,
+		.pInputAttachments = nullptr,
+		.colorAttachmentCount = 1,
+		.pColorAttachments = &colorAttachmentReference,
+		.pResolveAttachments = nullptr,
+		.pDepthStencilAttachment = &depthAttachmentReference,
+		.preserveAttachmentCount = 0,
+		.pPreserveAttachments = nullptr,
+	};
+
+	const VkRenderPassCreateInfo renderPassCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+		.pNext = nullptr,
+		.attachmentCount = 2,
+		.pAttachments = attachments,
+		.subpassCount = 1,
+		.pSubpasses = &subpass,
+		.dependencyCount = 0,
+		.pDependencies = nullptr,
+	};
+
+	VkRenderPass myRenderPass;
+	result = vkCreateRenderPass(theDevice, &renderPassCreateInfo, nullptr, &myRenderPass);
+	assert(result == VK_SUCCESS);
+
+	outRenderPass = myRenderPass;
+	return true;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /*
- *
+ * create framebuffer
  *
  */
 bool createFramebuffer(const VkDevice theDevice,
@@ -302,17 +397,17 @@ int main(int argc, char* argv[])
 	vkGetPhysicalDeviceMemoryProperties(myPhysicalDevice, &myMemoryProperties);
 
 	// Create the Depth Buffer's Image and View.
+	const VkFormat myDepthBufferFormat = VK_FORMAT_D16_UNORM;
 	VkImage myDepthImage;
 	VkImageView myDepthImageView;
 	VkDeviceMemory myDepthMemory;
-	boolResult = createDepthBuffer(myDevice, VK_FORMAT_D16_UNORM, myMemoryProperties, windowWidth, windowHeight, myDepthImage, myDepthImageView, myDepthMemory);
+	boolResult = createDepthBuffer(myDevice, myDepthBufferFormat, myMemoryProperties, windowWidth, windowHeight, myDepthImage, myDepthImageView, myDepthMemory);
 	assert(boolResult);
-
-
 
 	// Create the renderpass.
 	VkRenderPass myRenderPass;
-	// TODO
+	boolResult = createTriangleDemoRenderPass(myDevice, mySurfaceFormat, myDepthBufferFormat, myRenderPass);
+	assert(boolResult);
 
 	// Create the Framebuffers, based on the number of swapchain images.
 	std::vector<VkFramebuffer> myFramebuffersVector;
