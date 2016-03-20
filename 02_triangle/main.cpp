@@ -40,8 +40,8 @@ bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const V
 bool createDepthBuffer(const VkDevice theDevice,
                        const VkFormat theDepthBufferFormat,
                        const VkPhysicalDeviceMemoryProperties theMemoryProperties,
-                       const int windowWidth,
-                       const int windowHeight,
+                       const int width,
+                       const int height,
                        VkImage & outDepthImage,
                        VkImageView & outDepthImageView,
                        VkDeviceMemory & outDepthMemory
@@ -62,7 +62,7 @@ bool createDepthBuffer(const VkDevice theDevice,
 		.flags = 0,
 		.imageType = VK_IMAGE_TYPE_2D,
 		.format = theDepthBufferFormat,
-		.extent = {(uint32_t)windowWidth, (uint32_t)windowHeight, 1},
+		.extent = {(uint32_t)width, (uint32_t)height, 1},
 		.mipLevels = 1,
 		.arrayLayers = 1,
 		.samples = VK_SAMPLE_COUNT_1_BIT,
@@ -96,7 +96,7 @@ bool createDepthBuffer(const VkDevice theDevice,
 	}
 
 	// Allocate memory for the image.
-	VkMemoryAllocateInfo memoryAllocateInfo = {
+	const VkMemoryAllocateInfo memoryAllocateInfo = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.pNext = nullptr,
 		.allocationSize = memoryRequirements.size,
@@ -116,7 +116,7 @@ bool createDepthBuffer(const VkDevice theDevice,
 	/*
 	 * Create a View for the depth image.
 	 */
-	VkImageViewCreateInfo imageViewCreateInfo = {
+	const VkImageViewCreateInfo imageViewCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
@@ -151,10 +151,39 @@ bool createDepthBuffer(const VkDevice theDevice,
 
 
 
+/*
+ *
+ *
+ */
+bool createFramebuffer(const VkDevice theDevice,
+                               const VkRenderPass theRenderPass,
+                               const std::vector<VkImageView> & theViewAttachmentsVector,
+                               const int width,
+		                       const int height,
+                               VkFramebuffer & outFramebuffer
+                               )
+{
+	VkResult result;
 
+	const VkFramebufferCreateInfo framebufferCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.renderPass = theRenderPass,
+		.attachmentCount = (uint32_t)theViewAttachmentsVector.size(),
+		.pAttachments = theViewAttachmentsVector.data(),
+		.width = (uint32_t)width,
+		.height = (uint32_t)height,
+		.layers = 1,
+	};
 
+	VkFramebuffer myFramebuffer;
+	result = vkCreateFramebuffer(theDevice, &framebufferCreateInfo, nullptr, &myFramebuffer);
+	assert(result == VK_SUCCESS);
 
-
+	outFramebuffer = myFramebuffer;
+	return true;
+}
 
 
 
@@ -266,6 +295,9 @@ int main(int argc, char* argv[])
 
 
 
+
+
+
 	VkPhysicalDeviceMemoryProperties myMemoryProperties;
 	vkGetPhysicalDeviceMemoryProperties(myPhysicalDevice, &myMemoryProperties);
 
@@ -278,8 +310,20 @@ int main(int argc, char* argv[])
 
 
 
+	// Create the renderpass.
+	VkRenderPass myRenderPass;
+	// TODO
 
+	// Create the Framebuffers, based on the number of swapchain images.
+	std::vector<VkFramebuffer> myFramebuffersVector;
+	myFramebuffersVector.reserve(mySwapchainImageViewsVector.size());
 
+	for(const auto view : mySwapchainImageViewsVector) {
+		VkFramebuffer fb;
+		boolResult = createFramebuffer(myDevice, myRenderPass, {view, myDepthImageView}, windowWidth, windowHeight, fb);
+		assert(boolResult);
+		myFramebuffersVector.push_back(fb);
+	}
 
 
 
