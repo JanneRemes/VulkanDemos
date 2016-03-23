@@ -22,6 +22,26 @@
 #include <thread>
 #include <cassert>
 #include <climits>
+#include <cstddef>
+
+#include <fstream>
+
+
+/*
+ * Constants
+ */
+static const std::string VERTEX_SHADER_FILENAME   = "vertex.spirv";
+static const std::string FRAGMENT_SHADER_FILENAME = "fragment.spirv";
+
+static constexpr int VERTEX_INPUT_BINDING = 0;	// The Vertex Input Binding for our vertex buffer.
+
+/*
+ * Structures
+ */
+struct TriangleDemoVertex {
+	float x, y, z;
+	float r, g, b;
+};
 
 
 /*
@@ -152,7 +172,7 @@ bool createDepthBuffer(const VkDevice theDevice,
 
 
 
-/*
+/**
  * create framebuffer
  *
  */
@@ -189,7 +209,7 @@ bool createFramebuffer(const VkDevice theDevice,
 
 
 
-/*
+/**
  * Create renderpass
  *
  * NOTE: this function is relative to this demo, and not generic enough to be in commons.
@@ -272,11 +292,7 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 
 
 
-
-
-
-
-/*
+/**
  * create vertex buffer
  *
  */
@@ -339,6 +355,334 @@ bool createAndAllocateBuffer(const VkDevice theDevice,
 
 	outBuffer = myBuffer;
 	outBufferMemory = myBufferMemory;
+	return true;
+}
+
+
+
+
+/**
+ * Loads a SPIR-V shader from file in path "filename" and from it creates a VkShaderModule.
+ *
+ */
+bool loadAndCreateShaderModule(const VkDevice theDevice, const std::string filename, VkShaderModule & outShaderModule)
+{
+	VkResult result;
+
+	// Read file into memory.
+	std::ifstream inFile;
+	inFile.open(filename, std::ios_base::binary | std::ios_base::ate);
+
+	if(!inFile) {
+		std::cout << "!!! ERROR: couldn't open shader file \"" << filename << "\" for reading." << std::endl;
+		return false;
+	}
+
+	long fileSize = inFile.tellg();
+	std::vector<char> fileContents((size_t)fileSize);
+
+	inFile.seekg(0, std::ios::beg);
+	bool readStat = bool(inFile.read(fileContents.data(), fileSize));
+	inFile.close();
+
+	if(!readStat) {
+		std::cout << "!!! ERROR: couldn't read shader file \"" << filename << "\"." << std::endl;
+		return false;
+	}
+
+	// Create shader module.
+	VkShaderModuleCreateInfo shaderModuleCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.codeSize = fileContents.size(),
+		.pCode = reinterpret_cast<uint32_t*>(fileContents.data()),
+	};
+
+	VkShaderModule myModule;
+	result = vkCreateShaderModule(theDevice, &shaderModuleCreateInfo, nullptr, &myModule);
+	assert(result == VK_SUCCESS);
+
+	outShaderModule = myModule;
+	return true;
+}
+
+
+
+/**
+ * Create Pipeline for this demo.
+ *
+ */
+bool createTriangleDemoPipeline(const VkDevice theDevice,
+                                const VkRenderPass theRenderPass,
+                                const VkPipelineLayout thePipelineLayout,
+                                VkPipeline & outPipeline
+                                )
+{
+	VkResult result;
+
+	/*
+	 * Load the shaders and create the VkShaderModules.
+	 */
+	VkShaderModule vertexShaderModule, fragmentShaderModule;
+	bool b1, b2;
+	b1 = loadAndCreateShaderModule(theDevice, VERTEX_SHADER_FILENAME, vertexShaderModule);
+	b2 = loadAndCreateShaderModule(theDevice, FRAGMENT_SHADER_FILENAME, fragmentShaderModule);
+
+	if(!b1 || !b2) {
+		std::cout << "!!! ERROR: couldn't create shader modules." << std::endl;
+		return false;
+	}
+
+
+	/*
+	 * Specify the pipeline's stages:
+	 *
+	 * In this demo we have 2 stages: the vertex shader stage, and the fragment shader stage.
+	 */
+	VkPipelineShaderStageCreateInfo shaderStageCreateInfo[2] = {
+		[0] = {    // Vertex shader
+			.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.pNext  = nullptr,
+			.flags  = 0,
+			.stage  = VK_SHADER_STAGE_VERTEX_BIT,
+			.module = vertexShaderModule,
+			.pName  = "main",               // Shader entry point name.
+			.pSpecializationInfo = nullptr,	// This field allows to specify constant values for constants in SPIR-V modules, before creating the pipeline.
+		},
+		[1] = {    // Fragment shader
+			.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.pNext  = nullptr,
+			.flags  = 0,
+			.stage  = VK_SHADER_STAGE_FRAGMENT_BIT,
+			.module = fragmentShaderModule,
+			.pName  = "main",
+			.pSpecializationInfo = nullptr,
+		},
+	};
+
+
+	/*
+	 * Specify parameters for vertex input.
+	 *
+	 */
+	// A Vertex Input Binding describes a binding point where a buffer can be connected.
+	VkVertexInputBindingDescription vertexInputBindingDescription = {
+		.binding = VERTEX_INPUT_BINDING,
+		.stride = sizeof(TriangleDemoVertex),
+		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+	};
+
+	// Vertex Attribute Descriptions describe the format of the data expected on a buffer
+	// attached on a particular Vertex Input Binding.
+	// Here we have two Attribute Descriptions: one for vertex position (x,y,z),
+	// and one for vertex color (r,g,b).
+	VkVertexInputAttributeDescription vertexInputAttributeDescription[2] = {
+		[0] = {
+			.location = 0,
+			.binding = VERTEX_INPUT_BINDING,
+			.format = VK_FORMAT_R32G32B32_SFLOAT,
+			.offset = offsetof(TriangleDemoVertex, x),
+		},
+		[1] = {
+			.location = 1,
+			.binding = VERTEX_INPUT_BINDING,
+			.format = VK_FORMAT_R32G32B32_SFLOAT,
+			.offset = offsetof(TriangleDemoVertex, r),
+		},
+	};
+
+	// This will go in the Pipeline Create Info struct.
+	VkPipelineVertexInputStateCreateInfo vertexInputStateCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.vertexBindingDescriptionCount = 1,
+		.pVertexBindingDescriptions = &vertexInputBindingDescription,
+		.vertexAttributeDescriptionCount = 2,
+		.pVertexAttributeDescriptions = vertexInputAttributeDescription,
+	};
+
+
+	/*
+	 * Specify parameters for input assembly.
+	 *
+	 */
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyStateCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,  // What does the vertex data represent in the vertex buffer?
+		.primitiveRestartEnable = VK_FALSE,
+	};
+
+
+	/*
+	 * Specify what parameters will be part of the dynamic state.
+	 *
+	 * TODO: explain dynamic state.
+	 */
+	VkDynamicState dynamicStateEnables[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+
+	VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.dynamicStateCount = 2,
+		.pDynamicStates = dynamicStateEnables,
+	};
+
+
+	/*
+	 * Specify the viewport state.
+	 *
+	 * We'll use dynamic viewport ans scissor state, so we specify nullptr
+	 * for these values.
+	 */
+	VkPipelineViewportStateCreateInfo viewportStateCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.viewportCount = 1,
+		.pViewports = nullptr,
+		.scissorCount = 1,     // Must match viewportCount
+		.pScissors = nullptr,
+	};
+
+
+	/*
+	 * Specifiy rasterization parameters.
+	 */
+	VkPipelineRasterizationStateCreateInfo rasterizationStateCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.depthClampEnable = VK_FALSE,
+		.rasterizerDiscardEnable = VK_FALSE,
+		.polygonMode = VK_POLYGON_MODE_FILL,
+		.cullMode = VK_CULL_MODE_BACK_BIT,
+		.frontFace = VK_FRONT_FACE_CLOCKWISE,
+		.depthBiasEnable = VK_FALSE,
+		.depthBiasConstantFactor = 0,
+		.depthBiasClamp = 0,
+		.depthBiasSlopeFactor = 0,
+		.lineWidth = 1,
+	};
+
+
+	/*
+	 * Specifiy blending parameters.
+	 *
+	 * In this demo we don't enable blending; this means the fragments generated will overwrite
+	 * whatever the framebuffer contains in that moment.
+	 */
+
+	// You need to create a VkPipelineColorBlendAttachmentState for each color attachment you
+	// have on the subpass of the renderpass where this pipeline will be used.
+	VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {
+		.blendEnable = VK_FALSE,   // Disable blending for this demo. All the other values in this struct are ignored except colorWriteMask.
+		.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+		.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+		.colorBlendOp = VK_BLEND_OP_ADD,
+		.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+		.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+		.alphaBlendOp = VK_BLEND_OP_ADD,
+		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+		//    ^^^  Which components of the fragments to write out to memory (in this case, all of them).
+	};
+
+	VkPipelineColorBlendStateCreateInfo colorBlendStateCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.logicOpEnable = VK_FALSE,                    // unused in this demo
+		.logicOp = VK_LOGIC_OP_CLEAR,                 // (ignored)
+		.attachmentCount = 1,
+		.pAttachments = &colorBlendAttachmentState,
+		.blendConstants = {0.0f, 0.0f, 0.0f, 0.0f},   // (ignored if blending not enabled)
+	};
+
+
+	/*
+	 * Specify depth buffer and stencil buffer parameters.
+	 *
+	 */
+	VkPipelineDepthStencilStateCreateInfo depthStencilStateCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.depthTestEnable = VK_TRUE,
+		.depthWriteEnable = VK_TRUE,
+		.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+		.depthBoundsTestEnable = VK_FALSE,
+		.stencilTestEnable = VK_FALSE,
+		.front = {               // These values are ignored since stencilTestEnable is false
+			.failOp = VK_STENCIL_OP_KEEP,
+			.passOp = VK_STENCIL_OP_KEEP,
+			.depthFailOp = VK_STENCIL_OP_KEEP,
+			.compareOp = VK_COMPARE_OP_ALWAYS,
+			.compareMask = 0,
+			.writeMask = 0,
+			.reference = 0,
+		},
+		.minDepthBounds = 0.0f,  // (ignored because depthBoundsTestEnable is false)
+		.maxDepthBounds = 0.0f,  // (ignored because depthBoundsTestEnable is false)
+	};
+
+	depthStencilStateCreateInfo.back = depthStencilStateCreateInfo.front;	// I'm lazy :)
+
+
+	/*
+	 * Specify Multisample parameters
+	 *
+	 */
+	VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo = {
+	    .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,  // Only one sample per pixel (effectively disables multisampling)
+		.sampleShadingEnable = VK_FALSE,
+		.minSampleShading = 0,
+		.pSampleMask = nullptr,
+		.alphaToCoverageEnable = VK_FALSE,
+		.alphaToOneEnable = VK_FALSE,
+	};
+
+
+	/*
+	 * Finally, create the pipeline with all the information we defined before.
+	 *
+	 */
+	VkGraphicsPipelineCreateInfo graphicsPipelineCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.stageCount = 2,
+	    .pStages = shaderStageCreateInfo,
+		.pVertexInputState = &vertexInputStateCreateInfo,
+		.pInputAssemblyState = &inputAssemblyStateCreateInfo,
+		.pTessellationState = nullptr,
+		.pViewportState = &viewportStateCreateInfo,
+		.pRasterizationState = &rasterizationStateCreateInfo,
+		.pMultisampleState = &multisampleStateCreateInfo,
+		.pDepthStencilState = &depthStencilStateCreateInfo,
+		.pColorBlendState = &colorBlendStateCreateInfo,
+		.pDynamicState = &dynamicStateCreateInfo,
+		.layout = thePipelineLayout,
+		.renderPass = theRenderPass,
+		.subpass = 0,
+		.basePipelineHandle = VK_NULL_HANDLE, // This and the following parameter are used
+		.basePipelineIndex = -1,              //  to create derivative pipelines -- not used in this demo.
+	};
+
+	VkPipeline myPipeline;
+	result = vkCreateGraphicsPipelines(theDevice, VK_NULL_HANDLE, 1, &graphicsPipelineCreateInfo, nullptr, &myPipeline);
+	assert(result == VK_SUCCESS);
+
+	vkDestroyShaderModule(theDevice, vertexShaderModule, nullptr);
+	vkDestroyShaderModule(theDevice, fragmentShaderModule, nullptr);
+
+	outPipeline = myPipeline;
 	return true;
 }
 
@@ -447,15 +791,21 @@ int main(int argc, char* argv[])
 
 
 
-
-
-
-
+	/*
+	 * TODO modificare createDepthBuffer per diventare "createAndAllocateImage" similmente a "createAndAllocateBuffer".
+	 *
+	 * - popolare vertex buffer
+	 * - crea descriptor layout
+	 * - crea pipeline
+	 * - crea descriptor pool (solo se serve)
+	 * - crea descriptor set (solo se serve)
+	 */
 	VkPhysicalDeviceMemoryProperties myMemoryProperties;
 	vkGetPhysicalDeviceMemoryProperties(myPhysicalDevice, &myMemoryProperties);
 
 	// Create the Depth Buffer's Image and View.
 	const VkFormat myDepthBufferFormat = VK_FORMAT_D16_UNORM;
+
 	VkImage myDepthImage;
 	VkImageView myDepthImageView;
 	VkDeviceMemory myDepthMemory;
@@ -480,14 +830,14 @@ int main(int argc, char* argv[])
 
 
 	// Create the vertex buffer.
-
-	const size_t vertexBufferSize = 100;
+	const size_t vertexBufferSize = 100;	// FIXME set real size.
 	VkBuffer myVertexBuffer;
 	VkDeviceMemory myVertexBufferMemory;
 	boolResult = createAndAllocateBuffer(myDevice, myMemoryProperties, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBufferSize, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, myVertexBuffer, myVertexBufferMemory);
 	assert(boolResult);
 
 	/*
+	 * TODO Map vertex buffer and insert data
 	result = vkMapMemory(myDevice, myVertexBufferMemory, 0, mem_alloc.allocationSize, 0, &data);
 	assert(result == VK_SUCCESS);
 
@@ -497,7 +847,25 @@ int main(int argc, char* argv[])
 	*/
 
 
+	const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.setLayoutCount = 0,
+		.pSetLayouts = nullptr,
+		.pushConstantRangeCount = 0,
+		.pPushConstantRanges = nullptr,
+	};
 
+	VkPipelineLayout myPipelineLayout;
+	result = vkCreatePipelineLayout(myDevice, &pipelineLayoutCreateInfo, nullptr, &myPipelineLayout);
+	assert(result == VK_SUCCESS);
+
+
+	// Create Pipeline.
+	VkPipeline myPipeline;
+	boolResult = createTriangleDemoPipeline(myDevice, myRenderPass, myPipelineLayout, myPipeline);
+	assert(boolResult);
 
 
 
@@ -633,6 +1001,9 @@ int main(int argc, char* argv[])
 	// We wait for pending operations to complete before starting to destroy stuff.
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
+
+
+	vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
 
 	// Destroy vertex buffer and free its memory.
 	vkDestroyBuffer(myDevice, myVertexBuffer, nullptr);
