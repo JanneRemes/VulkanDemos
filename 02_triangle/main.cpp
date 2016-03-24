@@ -48,10 +48,33 @@ struct TriangleDemoVertex {
  * Prototypes for functions defined in this file.
  */
 bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkImage theDepthImage);
-bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkImage theCurrentSwapchainImage, const float clearColorR, const float clearColorG, const float clearColorB);
-bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const VkCommandBuffer thePresentCmdBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkFence thePresentFence, const float clearColorR, const float clearColorG, const float clearColorB);
+bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
+                                const VkImage theCurrentSwapchainImage,
+                                const VkFramebuffer theCurrentFramebuffer,
+                                const VkRenderPass theRenderPass,
+                                const VkPipeline thePipeline,
+                                const VkBuffer theVertexBuffer,
+                                const int width,
+                                const int height
+                                );
+bool renderSingleFrame(const VkDevice theDevice,
+                       const VkQueue theQueue,
+                       const VkSwapchainKHR theSwapchain,
+                       const VkCommandBuffer thePresentCmdBuffer,
+                       const std::vector<VkImage> & theSwapchainImagesVector,
+                       const std::vector<VkFramebuffer> & theFramebuffersVector,
+                       const VkRenderPass theRenderPass,
+                       const VkPipeline thePipeline,
+                       const VkBuffer theVertexBuffer,
+                       const int width,
+                       const int height,
+                       const VkFence thePresentFence
+                       );
 
 
+/*
+ * TODO change this function into "createAndAllocateImage", similar to "createAndAllocateBuffer".
+ */
 /**
  * Creates an image and a view to use as our depth buffer.
  * The image is created with layout VK_IMAGE_LAYOUT_UNDEFINED,
@@ -689,7 +712,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 
 
-
 /**
  * Good ol' main function.
  */
@@ -739,7 +761,7 @@ int main(int argc, char* argv[])
 
 	VkDebugReportCallbackEXT myDebugReportCallback;
 	vkdemos::createDebugReportCallback(myInstance,
-		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
+		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT /*| VK_DEBUG_REPORT_INFORMATION_BIT_EXT*/ | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
 		vkdemos::debugCallback,
 		myDebugReportCallback
 	);
@@ -790,15 +812,8 @@ int main(int argc, char* argv[])
 	assert(result == VK_SUCCESS);
 
 
-
 	/*
-	 * TODO modificare createDepthBuffer per diventare "createAndAllocateImage" similmente a "createAndAllocateBuffer".
-	 *
-	 * - popolare vertex buffer
-	 * - crea descriptor layout
-	 * - crea pipeline
-	 * - crea descriptor pool (solo se serve)
-	 * - crea descriptor set (solo se serve)
+	 * New initializations for this demo.
 	 */
 	VkPhysicalDeviceMemoryProperties myMemoryProperties;
 	vkGetPhysicalDeviceMemoryProperties(myPhysicalDevice, &myMemoryProperties);
@@ -830,23 +845,33 @@ int main(int argc, char* argv[])
 
 
 	// Create the vertex buffer.
-	const size_t vertexBufferSize = 100;	// FIXME set real size.
+	const size_t vertexBufferSize = sizeof(TriangleDemoVertex)*3;
 	VkBuffer myVertexBuffer;
 	VkDeviceMemory myVertexBufferMemory;
 	boolResult = createAndAllocateBuffer(myDevice, myMemoryProperties, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBufferSize, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, myVertexBuffer, myVertexBufferMemory);
 	assert(boolResult);
 
-	/*
-	 * TODO Map vertex buffer and insert data
-	result = vkMapMemory(myDevice, myVertexBufferMemory, 0, mem_alloc.allocationSize, 0, &data);
-	assert(result == VK_SUCCESS);
 
-	memcpy(data, vb, sizeof(vb));
+	// Map vertex buffer and insert data
+	{
+		const TriangleDemoVertex vertices[3] = {
+			//      position             color
+			{  0.5f,  0.5f,  0.0f,  0.1f, 0.8f, 0.1f },
+			{ -0.5f,  0.5f,  0.0f,  0.8f, 0.1f, 0.1f },
+			{  0.0f, -0.5f,  0.0f,  0.1f, 0.1f, 0.8f },
+		};
 
-	vkUnmapMemory(myDevice, myVertexBufferMemory);
-	*/
+		void *mappedBuffer;
+		result = vkMapMemory(myDevice, myVertexBufferMemory, 0, VK_WHOLE_SIZE, 0, &mappedBuffer);
+		assert(result == VK_SUCCESS);
+
+		memcpy(mappedBuffer, vertices, sizeof(vertices));
+
+		vkUnmapMemory(myDevice, myVertexBufferMemory);
+	}
 
 
+	// Create the pipeline.
 	const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.pNext = nullptr,
@@ -866,7 +891,6 @@ int main(int argc, char* argv[])
 	VkPipeline myPipeline;
 	boolResult = createTriangleDemoPipeline(myDevice, myRenderPass, myPipelineLayout, myPipeline);
 	assert(boolResult);
-
 
 
 	/*
@@ -907,35 +931,18 @@ int main(int argc, char* argv[])
 	std::cout << "\n---- Rendering Start ----" << std::endl;
 
 	/*
-	 * Now that initialization is complete, we can start our program's event loop!
-	 *
-	 * We'll process the SDL's events, and then send the drawing/present commands.
-	 * (in this demo we just clear the screen and present).
-	 *
-	 * Just for fun, we also collect and print some statistics about the average time
-	 * it takes to draw a single frame.
-	 * We also clear the screen to different colors for various frames, so that we
-	 * see something changing on the screen.
+	 * Event loop
 	 */
 	SDL_Event sdlEvent;
 	bool quit = false;
 
-	// Just some variables for frame statistics and different colors.
+	// Just some variables for frame statistics
 	long frameNumber = 0;
 	long frameMaxTime = LONG_MIN;
 	long frameMinTime = LONG_MAX;
 	long frameAvgTimeSum = 0;
 	long frameAvgTimeSumSquare = 0;
 	constexpr long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
-
-	constexpr int MAX_COLORS = 4;
-	constexpr int FRAMES_PER_COLOR = 120;	// How many frames to show each color.
-	static float screenColors[MAX_COLORS][3] = {
-	    {1.0f, 0.2f, 0.2f},
-	    {0.0f, 0.9f, 0.2f},
-	    {0.0f, 0.2f, 1.0f},
-	    {1.0f, 0.9f, 0.2f},
-	};
 
 	// The main event/render loop.
 	while(!quit)
@@ -954,14 +961,9 @@ int main(int argc, char* argv[])
 		// Rendering code
 		if(!quit)
 		{
-			// Render various colors
-			float colR = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][0];
-			float colG = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][1];
-			float colB = screenColors[(frameNumber/FRAMES_PER_COLOR) % MAX_COLORS][2];
-
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence, colR, colG, colB);
+			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myFramebuffersVector, myRenderPass, myPipeline, myVertexBuffer, windowWidth, windowHeight, myPresentFence);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -1002,7 +1004,7 @@ int main(int argc, char* argv[])
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
 
-
+	vkDestroyPipeline(myDevice, myPipeline, nullptr);
 	vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
 
 	// Destroy vertex buffer and free its memory.
@@ -1139,12 +1141,21 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer,
 
 
 
+
 /**
  * Fill the specified command buffer with the present commands for this demo.
  *
  * The commands consist in
  */
-bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkImage theCurrentSwapchainImage, const float clearColorR, const float clearColorG, const float clearColorB)
+bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
+                                const VkImage theCurrentSwapchainImage,
+                                const VkFramebuffer theCurrentFramebuffer,
+                                const VkRenderPass theRenderPass,
+                                const VkPipeline thePipeline,
+                                const VkBuffer theVertexBuffer,
+                                const int width,
+                                const int height
+                                )
 {
 	VkResult result;
 
@@ -1179,35 +1190,81 @@ bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkIm
 	 * to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
 	 */
 	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	imageMemoryBarrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	imageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
 	vkCmdPipelineBarrier(theCommandBuffer,
 		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 		0, 0, nullptr, 0, nullptr, 1, &imageMemoryBarrier
 	);
 
+
+	/************************************************************************************/
 	/*
-	 * Add the CmdClearColorImage that will fill the swapchain image with the specified color.
-	 * For this command to work, the destination image must be in either VK_IMAGE_LAYOUT_GENERAL
-	 * or VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL layout.
+	 * Record the state setup and drawing commands.
 	 */
-	VkClearColorValue clearColorValue;
-	VkImageSubresourceRange imageSubresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-	clearColorValue.float32[0] = clearColorR;	// FIXME it assumes the image is a floating point one.
-	clearColorValue.float32[1] = clearColorG;
-	clearColorValue.float32[2] = clearColorB;
-	clearColorValue.float32[3] = 1.0f;	// alpha
-	vkCmdClearColorImage(theCommandBuffer, theCurrentSwapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColorValue, 1, &imageSubresourceRange);
+	// Begin the renderpass (passing also the clear values for all the attachments).
+	const VkClearValue clearValues[2] = {
+		[0] = {.color.float32 = {0.3f, 0.5f, 0.9f, 1.0f}},  // Clear color for the color attachment at index 0
+		[1] = {.depthStencil  = {1.0f, 0}},              // Clear value for the depth buffer at attachment index 1
+	};
+
+	const VkRenderPassBeginInfo rp_begin = {
+		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+		.pNext = nullptr,
+		.renderPass = theRenderPass,
+		.framebuffer = theCurrentFramebuffer,
+	    .renderArea.offset = {0, 0},
+	    .renderArea.extent = {(uint32_t)width, (uint32_t)height},
+		.clearValueCount = 2,
+		.pClearValues = clearValues,
+	};
+
+	vkCmdBeginRenderPass(theCommandBuffer, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+
+	// Bind the pipeline.
+	vkCmdBindPipeline(theCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, thePipeline);
+
+	// Set the viewport dynamic state.
+	VkViewport viewport = {
+		.x = 0.0f,
+		.y = 0.0f,
+		.width = (float)width,
+		.height = (float)height,
+		.minDepth = 0.0f,
+		.maxDepth = 1.0f,
+	};
+
+	vkCmdSetViewport(theCommandBuffer, 0, 1, &viewport);
+
+	// Set the scissor dynamic state.
+	VkRect2D scissor = {
+		.offset.x = 0,
+		.offset.y = 0,
+		.extent.width = (uint32_t)width,
+		.extent.height = (uint32_t)height,
+	};
+	vkCmdSetScissor(theCommandBuffer, 0, 1, &scissor);
+
+	// Bind the vertex buffer.
+	VkDeviceSize buffersOffsets = 0;
+	vkCmdBindVertexBuffers(theCommandBuffer, VERTEX_INPUT_BINDING, 1, &theVertexBuffer, &buffersOffsets);
+
+	// Send the draw command, that will begin all the rendering magic
+	vkCmdDraw(theCommandBuffer, 3, 1, 0, 0);
+
+	// End the render pass commands.
+	vkCmdEndRenderPass(theCommandBuffer);
 
 
+	/************************************************************************************/
 	/*
 	 * Transition the swapchain image from VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
 	 * to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 	 */
-	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
 	imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
@@ -1236,8 +1293,14 @@ bool renderSingleFrame(const VkDevice theDevice,
                        const VkSwapchainKHR theSwapchain,
                        const VkCommandBuffer thePresentCmdBuffer,
                        const std::vector<VkImage> & theSwapchainImagesVector,
-                       const VkFence thePresentFence,
-                       const float clearColorR, const float clearColorG, const float clearColorB)
+                       const std::vector<VkFramebuffer> & theFramebuffersVector,
+                       const VkRenderPass theRenderPass,
+                       const VkPipeline thePipeline,
+                       const VkBuffer theVertexBuffer,
+                       const int width,
+                       const int height,
+                       const VkFence thePresentFence
+                       )
 {
 	VkResult result;
 	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
@@ -1295,7 +1358,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 	/*
 	 * Fill the present command buffer with... the present commands.
 	 */
-	bool boolResult = fillPresentCommandBuffer(thePresentCmdBuffer, theSwapchainImagesVector[imageIndex], clearColorR, clearColorG, clearColorB);
+	bool boolResult = fillRenderingCommandBuffer(thePresentCmdBuffer, theSwapchainImagesVector[imageIndex], theFramebuffersVector[imageIndex], theRenderPass, thePipeline, theVertexBuffer, width, height);
 	assert(boolResult);
 
 
@@ -1347,25 +1410,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 	else if(result != VK_SUBOPTIMAL_KHR)
 		assert(result == VK_SUCCESS);
 
-	/*
-	 * The end!
-	 * ... or not?
-	 *
-	 * Unfortunately, on current experimental Nvidia drivers (as of 2016-04-16),
-	 * vkAcquireNextImageKHR is broken in that it never waits for a new image to be available;
-	 * this means that we can't use it to throttle our rendering rate.
-	 * Moreover, at least on Linux/X11, this causes the system to hang up unresponsive;
-	 * for more informations, check [1] and [2].
-	 *
-	 * To slow down rendering, we can wait for the queue to finish all of its work,
-	 * for example calling vkQueueWaitIdle(theQueue); unfortunately, on Nvidia drivers,
-	 * vkQueueWaitIdle is implemented as a busy cycle, so a single CPU core will constantly
-	 * be at 100% usage. Not that is a bug or a problem (you tipically won't be calling
-	 * vkQueueWaitIdle every frame), but it's a bit annoying.
-	 *
-	 * [1] https://vulkan.lunarg.com/app/issues/56ca3a477ef24d0001787448
-	 * [2] https://www.reddit.com/r/vulkan/comments/48oe7b/problems_with_fences_vkacquirenextimagekhr_and/?ref=share&ref_source=link
-	 */
+	// Wait for the queue to complete working; see Demo 01 for a discussion about this function.
 	vkQueueWaitIdle(theQueue);
 
 	// Cleanup
