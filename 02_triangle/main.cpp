@@ -72,31 +72,35 @@ bool renderSingleFrame(const VkDevice theDevice,
                        );
 
 
-/*
- * TODO change this function into "createAndAllocateImage", similar to "createAndAllocateBuffer".
- */
+
+
 /**
- * Creates an image and a view to use as our depth buffer.
+ * Creates a VkImage and allocates memory for it.
  * The image is created with layout VK_IMAGE_LAYOUT_UNDEFINED,
- * and must be appropriately transitioned to VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
+ * and must be transitioned to the appropriate layout.
+ *
+ * If outImageViewPtr is not nullptr, a VkImageView for the new image is created.
  */
-bool createDepthBuffer(const VkDevice theDevice,
-                       const VkFormat theDepthBufferFormat,
-                       const VkPhysicalDeviceMemoryProperties theMemoryProperties,
-                       const int width,
-                       const int height,
-                       VkImage & outDepthImage,
-                       VkImageView & outDepthImageView,
-                       VkDeviceMemory & outDepthMemory
-                       )
+bool createAndAllocateImage(const VkDevice theDevice,
+                            const VkPhysicalDeviceMemoryProperties theMemoryProperties,
+                            const VkBufferUsageFlags imageUsage,
+                            const VkMemoryPropertyFlags requiredMemoryProperties,
+                            const VkFormat theImageFormat,
+                            const int width,
+                            const int height,
+                            VkImage & outImage,
+                            VkDeviceMemory & outImageMemory,
+                            VkImageView * outImageViewPtr = nullptr,
+                            VkImageAspectFlags viewSubresourceAspectMask = 0
+                            )
 {
 	VkResult result;
-	VkImage myDepthImage;
-	VkImageView myDepthImageView;
-	VkDeviceMemory myDepthMemory;
+	VkImage myImage;
+	VkImageView myImageView;
+	VkDeviceMemory myImageMemory;
 
 	/*
-	 * Create the VkImage that represents our depth image.
+	 * Create the VkImage.
 	 * TODO explain difference between the creation of a VkImage and the allocation of the backing memory.
 	 */
 	const VkImageCreateInfo imageCreateInfo = {
@@ -104,20 +108,20 @@ bool createDepthBuffer(const VkDevice theDevice,
 		.pNext = nullptr,
 		.flags = 0,
 		.imageType = VK_IMAGE_TYPE_2D,
-		.format = theDepthBufferFormat,
+		.format = theImageFormat,
 		.extent = {(uint32_t)width, (uint32_t)height, 1},
 		.mipLevels = 1,
 		.arrayLayers = 1,
 		.samples = VK_SAMPLE_COUNT_1_BIT,
 		.tiling = VK_IMAGE_TILING_OPTIMAL,
-		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		.usage = imageUsage,
 	    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,  // access exclusive to a single queue family at a time
 	    .queueFamilyIndexCount = 0,                // unused in sharing mode exclusive
 	    .pQueueFamilyIndices = nullptr,            // unused in sharing mode exclusive
 	    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 	};
 
-	result = vkCreateImage(theDevice, &imageCreateInfo, nullptr, &myDepthImage);
+	result = vkCreateImage(theDevice, &imageCreateInfo, nullptr, &myImage);
 	assert(result == VK_SUCCESS);
 
 	/*
@@ -127,14 +131,14 @@ bool createDepthBuffer(const VkDevice theDevice,
 	 * TODO explain better.
 	 */
 
-	// Get the memory requirements for our depth image.
+	// Get the memory requirements for our image.
 	VkMemoryRequirements memoryRequirements;
-	vkGetImageMemoryRequirements(theDevice, myDepthImage, &memoryRequirements);
+	vkGetImageMemoryRequirements(theDevice, myImage, &memoryRequirements);
 
-	// Find an appropriate memory type with all the requirements for our depth buffer's image.
-	int memoryTypeIndex = vkdemos::utils::findMemoryTypeWithProperties(theMemoryProperties, memoryRequirements.memoryTypeBits, 0);
+	// Find an appropriate memory type with all the requirements for our image.
+	int memoryTypeIndex = vkdemos::utils::findMemoryTypeWithProperties(theMemoryProperties, memoryRequirements.memoryTypeBits, requiredMemoryProperties);
 	if(memoryTypeIndex < 0) {
-		std::cout << "!!! ERROR: Can't find a memory type to hold the depth buffer image." << std::endl;
+		std::cout << "!!! ERROR: Can't find a memory type to hold the image." << std::endl;
 		return false;
 	}
 
@@ -146,47 +150,52 @@ bool createDepthBuffer(const VkDevice theDevice,
 		.memoryTypeIndex = (uint32_t)memoryTypeIndex,
 	};
 
-	result = vkAllocateMemory(theDevice, &memoryAllocateInfo, nullptr, &myDepthMemory);
+	result = vkAllocateMemory(theDevice, &memoryAllocateInfo, nullptr, &myImageMemory);
 	assert(result == VK_SUCCESS);
 
 	/*
-	 * Bind the allocated memory to the depth image.
+	 * Bind the allocated memory to the image.
 	 * TODO explain
 	 */
-	result = vkBindImageMemory(theDevice, myDepthImage, myDepthMemory, 0);
+	result = vkBindImageMemory(theDevice, myImage, myImageMemory, 0);
 	assert(result == VK_SUCCESS);
+
+	outImage = myImage;
+	outImageMemory = myImageMemory;
 
 	/*
-	 * Create a View for the depth image.
+	 * Create a View for the image.
 	 */
-	const VkImageViewCreateInfo imageViewCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.image = myDepthImage,
-		.format = theDepthBufferFormat,
-		.subresourceRange = {
-			.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
-			.baseMipLevel = 0,
-			.levelCount = 1,
-			.baseArrayLayer = 0,
-			.layerCount = 1
-		},
-		.components = {
-			.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-			.g = VK_COMPONENT_SWIZZLE_IDENTITY,
-			.b = VK_COMPONENT_SWIZZLE_IDENTITY,
-			.a = VK_COMPONENT_SWIZZLE_IDENTITY
-		},
-		.viewType = VK_IMAGE_VIEW_TYPE_2D,
-	};
+	if(outImageViewPtr != nullptr)
+	{
+		const VkImageViewCreateInfo imageViewCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.image = myImage,
+			.format = theImageFormat,
+			.subresourceRange = {
+				.aspectMask = viewSubresourceAspectMask,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1
+			},
+			.components = {
+				.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+				.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+				.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+				.a = VK_COMPONENT_SWIZZLE_IDENTITY
+			},
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		};
 
-	result = vkCreateImageView(theDevice, &imageViewCreateInfo, nullptr, &myDepthImageView);
-	assert(result == VK_SUCCESS);
+		result = vkCreateImageView(theDevice, &imageViewCreateInfo, nullptr, &myImageView);
+		assert(result == VK_SUCCESS);
 
-	outDepthImage = myDepthImage;
-	outDepthImageView = myDepthImageView;
-	outDepthMemory = myDepthMemory;
+		*outImageViewPtr = myImageView;
+	}
+
 	return true;
 }
 
@@ -256,7 +265,7 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR	// This way the driver will insert an appropriate layout change operation for us!
 		},
 		[1] = {
 			.flags = 0,
@@ -316,14 +325,14 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 
 
 /**
- * create vertex buffer
- *
+ * create a buffer
+ * TODO document
  */
 bool createAndAllocateBuffer(const VkDevice theDevice,
                              const VkPhysicalDeviceMemoryProperties theMemoryProperties,
                              const VkBufferUsageFlags bufferUsage,
-                             const VkDeviceSize bufferSize,
                              const VkMemoryPropertyFlags requiredMemoryProperties,
+                             const VkDeviceSize bufferSize,
                              VkBuffer & outBuffer,
                              VkDeviceMemory & outBufferMemory
                              )
@@ -824,8 +833,20 @@ int main(int argc, char* argv[])
 	VkImage myDepthImage;
 	VkImageView myDepthImageView;
 	VkDeviceMemory myDepthMemory;
-	boolResult = createDepthBuffer(myDevice, myDepthBufferFormat, myMemoryProperties, windowWidth, windowHeight, myDepthImage, myDepthImageView, myDepthMemory);
+	boolResult = createAndAllocateImage(myDevice,
+	                                    myMemoryProperties,
+	                                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+	                                    0,
+	                                    myDepthBufferFormat,
+	                                    windowWidth,
+	                                    windowHeight,
+	                                    myDepthImage,
+	                                    myDepthMemory,
+	                                    &myDepthImageView,
+	                                    VK_IMAGE_ASPECT_DEPTH_BIT
+	                                    );
 	assert(boolResult);
+
 
 	// Create the renderpass.
 	VkRenderPass myRenderPass;
@@ -848,7 +869,14 @@ int main(int argc, char* argv[])
 	const size_t vertexBufferSize = sizeof(TriangleDemoVertex)*3;
 	VkBuffer myVertexBuffer;
 	VkDeviceMemory myVertexBufferMemory;
-	boolResult = createAndAllocateBuffer(myDevice, myMemoryProperties, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBufferSize, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, myVertexBuffer, myVertexBufferMemory);
+	boolResult = createAndAllocateBuffer(myDevice,
+	                                     myMemoryProperties,
+	                                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+	                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+	                                     vertexBufferSize,
+	                                     myVertexBuffer,
+	                                     myVertexBufferMemory
+	                                     );
 	assert(boolResult);
 
 
@@ -1259,20 +1287,10 @@ bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	vkCmdEndRenderPass(theCommandBuffer);
 
 
-	/************************************************************************************/
-	/*
-	 * Transition the swapchain image from VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-	 * to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	 */
-	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-	imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-
-	vkCmdPipelineBarrier(theCommandBuffer,
-		VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &imageMemoryBarrier
-	);
+	// We don't need to add a pipeline barrier to transition the swapchain's image
+	// from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+	// because we already told the driver to do the layout change for us
+	// when we created the render pass. That's a very convenient feature!
 
 
 	/*
