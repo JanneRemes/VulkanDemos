@@ -28,6 +28,15 @@
 
 
 /*
+ * Structures
+ */
+struct TriangleDemoVertex {
+	float x, y, z;
+	float r, g, b;
+};
+
+
+/*
  * Constants
  */
 static const std::string VERTEX_SHADER_FILENAME   = "vertex.spirv";
@@ -35,12 +44,14 @@ static const std::string FRAGMENT_SHADER_FILENAME = "fragment.spirv";
 
 static constexpr int VERTEX_INPUT_BINDING = 0;	// The Vertex Input Binding for our vertex buffer.
 
-/*
- * Structures
- */
-struct TriangleDemoVertex {
-	float x, y, z;
-	float r, g, b;
+// Vertex data to draw.
+static constexpr int NUM_DEMO_VERTICES = 3;
+static const TriangleDemoVertex vertices[NUM_DEMO_VERTICES] =
+{
+	//      position             color
+	{  0.5f,  0.5f,  0.0f,  0.1f, 0.8f, 0.1f },
+	{ -0.5f,  0.5f,  0.0f,  0.8f, 0.1f, 0.1f },
+	{  0.0f, -0.5f,  0.0f,  0.1f, 0.1f, 0.8f },
 };
 
 
@@ -101,7 +112,10 @@ bool createAndAllocateImage(const VkDevice theDevice,
 
 	/*
 	 * Create the VkImage.
-	 * TODO explain difference between the creation of a VkImage and the allocation of the backing memory.
+	 *
+	 * When we create the VkImage object with vkCreateImage, we only create a
+	 * CPU-side object, that contains all the metadata of the image, but
+	 * no GPU memory is allocated for storing its contents.
 	 */
 	const VkImageCreateInfo imageCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -124,11 +138,16 @@ bool createAndAllocateImage(const VkDevice theDevice,
 	result = vkCreateImage(theDevice, &imageCreateInfo, nullptr, &myImage);
 	assert(result == VK_SUCCESS);
 
+
 	/*
 	 * Allocate memory for the image.
-	 * Before doing that, we need to query the device for a suitable memory pool
-	 * that is compatible with the memory requirements of our image.
-	 * TODO explain better.
+	 *
+	 * To allocate the necessary GPU memory to store the contents of our image,
+	 * we must find an appropriate memory heap that supports all the requirements
+	 * (alignment, GPU/CPU visiblity etc) that our image needs.
+	 *
+	 * With vkGetImageMemoryRequirements, we query the VkImage object we just created,
+	 * so that we then know what type of memory heap to search for in the VkDevice.
 	 */
 
 	// Get the memory requirements for our image.
@@ -153,9 +172,22 @@ bool createAndAllocateImage(const VkDevice theDevice,
 	result = vkAllocateMemory(theDevice, &memoryAllocateInfo, nullptr, &myImageMemory);
 	assert(result == VK_SUCCESS);
 
+
 	/*
 	 * Bind the allocated memory to the image.
-	 * TODO explain
+	 *
+	 * After we created a VkImage, queried its memory requirements, and allocated
+	 * some appropriate VkDeviceMemory, we can tell Vulkan to use that VkDeviceMemory
+	 * as a storage area for our VkImage object.
+	 * This connection is established with vkBindImageMemory.
+	 *
+	 * Note that you could allocate a VkDeviceMemory much larger than needed for a single
+	 * VkImage: this way you can bind many VkImages (with the same memory requirements)
+	 * on different offsets inside the VkDeviceMemory.
+	 * This is done mainly to ammortize the cost of memory allocation (there is a potentially large
+	 * space and time overhead in each memory allocation), or it can be used for advanced techniques
+	 * such as memory aliasing.
+	 * In these demoes we just allocate a new VkDeviceMemory for each single VkImage, for simplicity.
 	 */
 	result = vkBindImageMemory(theDevice, myImage, myImageMemory, 0);
 	assert(result == VK_SUCCESS);
@@ -205,8 +237,7 @@ bool createAndAllocateImage(const VkDevice theDevice,
 
 
 /**
- * create framebuffer
- *
+ * Creates a VkFramebuffer object from a set of VkImageViews.
  */
 bool createFramebuffer(const VkDevice theDevice,
                        const VkRenderPass theRenderPass,
@@ -325,8 +356,11 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 
 
 /**
- * create a buffer
- * TODO document
+ * Creates a VkBuffer and allocates memory for it.
+ *
+ * This function is basically identical to createAndAllocateImage;
+ * for an extended explanation of Vulkan's memory binding, refer
+ * to createAndAllocateImage's implementation.
  */
 bool createAndAllocateBuffer(const VkDevice theDevice,
                              const VkPhysicalDeviceMemoryProperties theMemoryProperties,
@@ -338,8 +372,12 @@ bool createAndAllocateBuffer(const VkDevice theDevice,
                              )
 {
 	VkResult result;
+	VkBuffer myBuffer;
+	VkDeviceMemory myBufferMemory;
 
-	// Create the buffer.
+	/*
+	 * Create the VkBuffer object.
+	 */
 	const VkBufferCreateInfo bufferCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		.pNext = nullptr,
@@ -351,7 +389,6 @@ bool createAndAllocateBuffer(const VkDevice theDevice,
 		.pQueueFamilyIndices = nullptr,            // unused in sharing mode exclusive
 	};
 
-	VkBuffer myBuffer;
 	result = vkCreateBuffer(theDevice, &bufferCreateInfo, nullptr, &myBuffer);
 	assert(result == VK_SUCCESS);
 
@@ -366,7 +403,9 @@ bool createAndAllocateBuffer(const VkDevice theDevice,
 		return false;
 	}
 
-	// Allocate memory for the buffer.
+	/*
+	 * Allocate memory for the buffer.
+	 */
 	const VkMemoryAllocateInfo memoryAllocateInfo = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.pNext = nullptr,
@@ -374,13 +413,11 @@ bool createAndAllocateBuffer(const VkDevice theDevice,
 		.memoryTypeIndex = (uint32_t)memoryTypeIndex,
 	};
 
-	VkDeviceMemory myBufferMemory;
 	result = vkAllocateMemory(theDevice, &memoryAllocateInfo, nullptr, &myBufferMemory);
 	assert(result == VK_SUCCESS);
 
 	/*
-	 * Bind the allocated memory to the depth image.
-	 * TODO explain
+	 * Bind the allocated memory to the buffer.
 	 */
 	result = vkBindBufferMemory(theDevice, myBuffer, myBufferMemory, 0);
 	assert(result == VK_SUCCESS);
@@ -394,14 +431,15 @@ bool createAndAllocateBuffer(const VkDevice theDevice,
 
 
 /**
- * Loads a SPIR-V shader from file in path "filename" and from it creates a VkShaderModule.
- *
+ * Loads a SPIR-V shader from file in path "filename" and creates a VkShaderModule from it.
  */
 bool loadAndCreateShaderModule(const VkDevice theDevice, const std::string filename, VkShaderModule & outShaderModule)
 {
 	VkResult result;
 
-	// Read file into memory.
+	/*
+	 * Read file into memory.
+	 */
 	std::ifstream inFile;
 	inFile.open(filename, std::ios_base::binary | std::ios_base::ate);
 
@@ -422,7 +460,9 @@ bool loadAndCreateShaderModule(const VkDevice theDevice, const std::string filen
 		return false;
 	}
 
-	// Create shader module.
+	/*
+	 * Create shader module.
+	 */
 	VkShaderModuleCreateInfo shaderModuleCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
 		.pNext = nullptr,
@@ -442,8 +482,7 @@ bool loadAndCreateShaderModule(const VkDevice theDevice, const std::string filen
 
 
 /**
- * Create Pipeline for this demo.
- *
+ * Create the VkPipeline for this demo.
  */
 bool createTriangleDemoPipeline(const VkDevice theDevice,
                                 const VkRenderPass theRenderPass,
@@ -468,7 +507,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 
 	/*
-	 * Specify the pipeline's stages:
+	 * Specify the pipeline's stages.
 	 *
 	 * In this demo we have 2 stages: the vertex shader stage, and the fragment shader stage.
 	 */
@@ -480,7 +519,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 			.stage  = VK_SHADER_STAGE_VERTEX_BIT,
 			.module = vertexShaderModule,
 			.pName  = "main",               // Shader entry point name.
-			.pSpecializationInfo = nullptr,	// This field allows to specify constant values for constants in SPIR-V modules, before creating the pipeline.
+			.pSpecializationInfo = nullptr,	// This field allows to specify constant values for constants in SPIR-V modules, before compiling the pipeline.
 		},
 		[1] = {    // Fragment shader
 			.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -498,7 +537,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	 * Specify parameters for vertex input.
 	 *
 	 */
-	// A Vertex Input Binding describes a binding point where a buffer can be connected.
+	// A Vertex Input Binding describes a binding point on the pipeline where a buffer can be connected.
 	VkVertexInputBindingDescription vertexInputBindingDescription = {
 		.binding = VERTEX_INPUT_BINDING,
 		.stride = sizeof(TriangleDemoVertex),
@@ -506,7 +545,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	};
 
 	// Vertex Attribute Descriptions describe the format of the data expected on a buffer
-	// attached on a particular Vertex Input Binding.
+	// attached to a particular Vertex Input Binding.
 	// Here we have two Attribute Descriptions: one for vertex position (x,y,z),
 	// and one for vertex color (r,g,b).
 	VkVertexInputAttributeDescription vertexInputAttributeDescription[2] = {
@@ -539,12 +578,16 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	/*
 	 * Specify parameters for input assembly.
 	 *
+	 * The Input Assembly stage is a fixed function stage in the pipeline
+	 * that collects all the processed vertices and sends them to the rasterizer.
+	 * We must tell it how to interpret those vertices: in this demo, our vertices
+	 * describe a sequence of indipendent triangles.
 	 */
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyStateCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,  // What does the vertex data represent in the vertex buffer?
+		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
 		.primitiveRestartEnable = VK_FALSE,
 	};
 
@@ -552,7 +595,15 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	/*
 	 * Specify what parameters will be part of the dynamic state.
 	 *
-	 * TODO: explain dynamic state.
+	 * Some of the pipeline's parameters are static and baked into the pipeline object
+	 * at the instant of creation, but others can be chosen to be changed at a later time;
+	 * those parameters are what constitute the "dynamic state" of the pipeline.
+	 *
+	 * You can choose what parameters to leave static and what to make dynamic;
+	 * refer to Vulkan's specification to know what parameters can be made dynamic.
+	 * Just be aware that dynamic states cannot be taken into consideration when creating
+	 * the pipeline object, so there are less possibilities for the driver to apply various
+	 * device-dependent optimizations.
 	 */
 	VkDynamicState dynamicStateEnables[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
 
@@ -568,7 +619,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	/*
 	 * Specify the viewport state.
 	 *
-	 * We'll use dynamic viewport ans scissor state, so we specify nullptr
+	 * We'll use dynamic viewport and scissor state, so we specify nullptr
 	 * for these values.
 	 */
 	VkPipelineViewportStateCreateInfo viewportStateCreateInfo = {
@@ -584,6 +635,10 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 	/*
 	 * Specifiy rasterization parameters.
+	 *
+	 * These parameters tell the rasterizer how to treat the polygons it receives,
+	 * for example what the fill mode is (fill the triangles or draw only the borders),
+	 * the culling mode (front or back face culling), etc.
 	 */
 	VkPipelineRasterizationStateCreateInfo rasterizationStateCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -603,14 +658,15 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 
 	/*
-	 * Specifiy blending parameters.
+	 * Specify blending parameters.
 	 *
 	 * In this demo we don't enable blending; this means the fragments generated will overwrite
-	 * whatever the framebuffer contains in that moment.
+	 * whatever the framebuffer contains at that moment.
 	 */
 
-	// You need to create a VkPipelineColorBlendAttachmentState for each color attachment you
-	// have on the subpass of the renderpass where this pipeline will be used.
+	// You need to create a VkPipelineColorBlendAttachmentState for each color attachment
+	// you have on the subpass of the renderpass where this pipeline will be used.
+	// (We have only one)
 	VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {
 		.blendEnable = VK_FALSE,   // Disable blending for this demo. All the other values in this struct are ignored except colorWriteMask.
 		.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
@@ -638,6 +694,8 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	/*
 	 * Specify depth buffer and stencil buffer parameters.
 	 *
+	 * These parameters tell the GPU how to treat values in the depth and stencil buffers
+	 * and what to do with with fragments that pass/fail the depth/stencil tests.
 	 */
 	VkPipelineDepthStencilStateCreateInfo depthStencilStateCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
@@ -665,7 +723,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 
 	/*
-	 * Specify Multisample parameters
+	 * Specify Multisample parameters.
 	 *
 	 */
 	VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo = {
@@ -865,8 +923,8 @@ int main(int argc, char* argv[])
 	}
 
 
-	// Create the vertex buffer.
-	const size_t vertexBufferSize = sizeof(TriangleDemoVertex)*3;
+	// Create a buffer to use as the vertex buffer.
+	const size_t vertexBufferSize = sizeof(TriangleDemoVertex)*NUM_DEMO_VERTICES;
 	VkBuffer myVertexBuffer;
 	VkDeviceMemory myVertexBufferMemory;
 	boolResult = createAndAllocateBuffer(myDevice,
@@ -879,21 +937,13 @@ int main(int argc, char* argv[])
 	                                     );
 	assert(boolResult);
 
-
 	// Map vertex buffer and insert data
 	{
-		const TriangleDemoVertex vertices[3] = {
-			//      position             color
-			{  0.5f,  0.5f,  0.0f,  0.1f, 0.8f, 0.1f },
-			{ -0.5f,  0.5f,  0.0f,  0.8f, 0.1f, 0.1f },
-			{  0.0f, -0.5f,  0.0f,  0.1f, 0.1f, 0.8f },
-		};
-
 		void *mappedBuffer;
 		result = vkMapMemory(myDevice, myVertexBufferMemory, 0, VK_WHOLE_SIZE, 0, &mappedBuffer);
 		assert(result == VK_SUCCESS);
 
-		memcpy(mappedBuffer, vertices, sizeof(vertices));
+		memcpy(mappedBuffer, vertices, vertexBufferSize);
 
 		vkUnmapMemory(myDevice, myVertexBufferMemory);
 	}
@@ -950,9 +1000,6 @@ int main(int argc, char* argv[])
 	assert(result == VK_SUCCESS);
 
 	// Wait for the queue to complete its work.
-	// Note: in a "real world" application you wouldn't use this function, but you would
-	// use a semaphore (a pointer to which goes in the above VkSubmitInfo struct)
-	// that will get signalled once the queue completes all the previous commands.
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
 
