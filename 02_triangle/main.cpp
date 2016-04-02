@@ -295,8 +295,9 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
 			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR	// This way the driver will insert an appropriate layout change operation for us!
+			.initialLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, // We can specify the initial layout of the attachment before it enters the render pass,
+			.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR	  // and the layout we expect to see after the render pass finishes.
+	                                                          // This way the driver will insert the appropriate layout change operations for us!
 		},
 		[1] = {
 			.flags = 0,
@@ -1247,46 +1248,21 @@ bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	result = vkBeginCommandBuffer(theCommandBuffer, &commandBufferBeginInfo);
 	assert(result == VK_SUCCESS);
 
+	// We don't need to add a pipeline barrier to transition the swapchain's image
+	// from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+	// because we already told the driver to do the layout change for us
+	// when we created the render pass. That's a very convenient feature!
 
-	// Pre-fill a VkImageMemoryBarrier structure that we'll use later
-	VkImageMemoryBarrier imageMemoryBarrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.pNext = nullptr,
-		.srcAccessMask = 0,
-		.dstAccessMask = 0,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-		.image = theCurrentSwapchainImage,
-	};
-
-	/*
-	 * Transition the swapchain image from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	 * to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-	 */
-	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	imageMemoryBarrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	imageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-	vkCmdPipelineBarrier(theCommandBuffer,
-		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &imageMemoryBarrier
-	);
-
-
-	/************************************************************************************/
 	/*
 	 * Record the state setup and drawing commands.
 	 */
-
 	// Begin the renderpass (passing also the clear values for all the attachments).
 	const VkClearValue clearValues[2] = {
-		[0] = {.color.float32 = {0.3f, 0.5f, 0.9f, 1.0f}},  // Clear color for the color attachment at index 0
-		[1] = {.depthStencil  = {1.0f, 0}},              // Clear value for the depth buffer at attachment index 1
+		[0] = {.color.float32 = {0.3f, 0.5f, 0.9f, 1.0f}}, // Clear color for the color attachment at index 0
+		[1] = {.depthStencil  = {1.0f, 0}},                // Clear value for the depth buffer at attachment index 1
 	};
 
-	const VkRenderPassBeginInfo rp_begin = {
+	const VkRenderPassBeginInfo renderPassBeginInfo = {
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		.pNext = nullptr,
 		.renderPass = theRenderPass,
@@ -1297,7 +1273,7 @@ bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 		.pClearValues = clearValues,
 	};
 
-	vkCmdBeginRenderPass(theCommandBuffer, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdBeginRenderPass(theCommandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	// Bind the pipeline.
 	vkCmdBindPipeline(theCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, thePipeline);
@@ -1321,6 +1297,7 @@ bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 		.extent.width = (uint32_t)width,
 		.extent.height = (uint32_t)height,
 	};
+
 	vkCmdSetScissor(theCommandBuffer, 0, 1, &scissor);
 
 	// Bind the vertex buffer.
@@ -1333,12 +1310,9 @@ bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	// End the render pass commands.
 	vkCmdEndRenderPass(theCommandBuffer);
 
-
-	// We don't need to add a pipeline barrier to transition the swapchain's image
+	// Again, we don't need to add a pipeline barrier to transition the swapchain's image
 	// from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	// because we already told the driver to do the layout change for us
-	// when we created the render pass. That's a very convenient feature!
-
+	// because we already told the driver to do it in the render pass.
 
 	/*
 	 * End recording of the command buffer
