@@ -520,6 +520,15 @@ bool loadAndCreateShaderModule(const VkDevice theDevice, const std::string & fil
 
 /**
  * Create the VkPipeline for this demo.
+ *
+ * Pipelines are "the things that do stuff": they are a path
+ * inside the GPU that vertex and fragment data follow
+ * and they define standardized processing stages that transform said data;
+ * VkPipeline objects define how those stages are configured.
+ *
+ * For this demo, we define a single graphics pipeline, with a vertex shader
+ * and a fragment shader; there is no input data other than a vertex buffer,
+ * and the pipeline outputs to an RGBA color attachment and a depth buffer.
  */
 bool createTriangleDemoPipeline(const VkDevice theDevice,
                                 const VkRenderPass theRenderPass,
@@ -546,7 +555,8 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	/*
 	 * Specify the pipeline's stages.
 	 *
-	 * In this demo we have 2 stages: the vertex shader stage, and the fragment shader stage.
+	 * In this demo we have 2 stages: the vertex shader stage, and the fragment shader stage
+	 * (other optional stages are tessellation and geometry shaders).
 	 */
 	VkPipelineShaderStageCreateInfo shaderStageCreateInfo[2] = {
 		[0] = {    // Vertex shader
@@ -555,7 +565,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 			.flags  = 0,
 			.stage  = VK_SHADER_STAGE_VERTEX_BIT,
 			.module = vertexShaderModule,
-			.pName  = "main",               // Shader entry point name.
+			.pName  = "main",               // Shader entry point name (i.e. the function that will be called when shader's execution starts)
 			.pSpecializationInfo = nullptr,	// This field allows to specify constant values for constants in SPIR-V modules, before compiling the pipeline.
 		},
 		[1] = {    // Fragment shader
@@ -574,7 +584,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	 * Specify parameters for vertex input.
 	 *
 	 */
-	// A Vertex Input Binding describes a binding point on the pipeline where a buffer can be connected.
+	// A Vertex Input Binding describes a binding point on the pipeline where a vertex buffer can be connected.
 	VkVertexInputBindingDescription vertexInputBindingDescription = {
 		.binding = VERTEX_INPUT_BINDING,
 		.stride = sizeof(TriangleDemoVertex),
@@ -583,8 +593,8 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 	// Vertex Attribute Descriptions describe the format of the data expected on a buffer
 	// attached to a particular Vertex Input Binding.
-	// Here we have two Attribute Descriptions: one for vertex position (x,y,z),
-	// and one for vertex color (r,g,b).
+	// Here we have two Attribute Descriptions: a vector of 3 float elements for vertex position (x,y,z),
+	// and a vector of 3 float elements for vertex color (r,g,b).
 	VkVertexInputAttributeDescription vertexInputAttributeDescription[2] = {
 		[0] = {
 			.location = 0,
