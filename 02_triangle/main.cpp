@@ -1217,6 +1217,8 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	{
 		imageMemoryBarrier.image = image;
 
+		// TODO run a single pipeline barrier with many VkImageMemoryBarriers at once.
+
 		vkCmdPipelineBarrier(theCommandBuffer, srcStageMask, dstStageMask,
 			0,         // dependencyFlags
 			0,         // memoryBarrierCount
@@ -1366,6 +1368,8 @@ bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 /**
  * Renders a single frame for this demo (i.e. we clear the screen).
  * Returns true on success and false on failure.
+ *
+ * For a more detailed description, refer to demo 01_clearscreen.
  */
 bool renderSingleFrame(const VkDevice theDevice,
                        const VkQueue theQueue,
@@ -1384,16 +1388,9 @@ bool renderSingleFrame(const VkDevice theDevice,
 	VkResult result;
 	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
 
-	// Create a semaphore that will be signalled when a swapchain image is ready to use,
-	// and that will be waited upon by the queue before starting all the rendering/present commands.
-	//
-	// Note: in a "real" application, you would create the semaphore only once at program initialization,
-	// and not every frame (for performance reasons).
 	result = vkdemos::utils::createSemaphore(theDevice, imageAcquiredSemaphore);
 	assert(result == VK_SUCCESS);
 
-	// Create another semaphore that will be signalled when the queue has terminated the rendering commands,
-	// and that will be waited upon by the actual present operation.
 	result = vkdemos::utils::createSemaphore(theDevice, renderingCompletedSemaphore);
 	assert(result == VK_SUCCESS);
 
@@ -1412,15 +1409,10 @@ bool renderSingleFrame(const VkDevice theDevice,
 	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, thePresentFence, &imageIndex);
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
-		// The swapchain is out of date (e.g. the window was resized) and must be recreated.
-		// In this demo we just "gracefully crash".
 		std::cout << "!!! ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
-		// TODO tear down and recreate the swapchain and all its images from scratch.
 		return false;
 	}
 	else if(result == VK_SUBOPTIMAL_KHR) {
-		// The swapchain is not as optimal as it could be, but the platform's
-		// presentation engine will still present the image correctly.
 		std::cout << "~~~ Swapchain is suboptimal." << std::endl;
 	}
 	else
@@ -1435,11 +1427,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 
 
 	/*
-	 * Submit the present command buffer to the queue (this is the fun part!)
-	 *
-	 * In the VkSubmitInfo we specify imageAcquiredSemaphore as a wait semaphore;
-	 * this way, the submitted command buffers won't start executing before the
-	 * swapchain image is ready.
+	 * Submit the present command buffer to the queue.
 	 */
 	VkPipelineStageFlags pipelineStageFlags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	VkSubmitInfo submitInfo = {
@@ -1459,8 +1447,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 
 
 	/*
-	 * Present the rendered image,
-	 * so that it will be queued for display.
+	 * Present the rendered image, so that it will be queued for display.
 	 */
 	VkPresentInfoKHR presentInfo = {
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -1482,10 +1469,16 @@ bool renderSingleFrame(const VkDevice theDevice,
 	else if(result != VK_SUBOPTIMAL_KHR)
 		assert(result == VK_SUCCESS);
 
-	// Wait for the queue to complete working; see Demo 01 for a discussion about this function.
+
+	/*
+	 * Wait for the queue to complete working; see Demo 01 for a discussion about this function.
+	 */
 	vkQueueWaitIdle(theQueue);
 
-	// Cleanup
+
+	/*
+	 * Cleanup
+	 */
 	vkDestroySemaphore(theDevice, imageAcquiredSemaphore, nullptr);
 	vkDestroySemaphore(theDevice, renderingCompletedSemaphore, nullptr);
 	return true;
