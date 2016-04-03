@@ -917,12 +917,7 @@ int main(int argc, char* argv[])
 	assert(boolResult);
 
 	VkFence myPresentFence;
-	VkFenceCreateInfo fenceCreateInfo = {
-	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-	    .pNext = nullptr,
-	    .flags = 0
-	};
-	result = vkCreateFence(myDevice, &fenceCreateInfo, nullptr, &myPresentFence);
+	result = vkdemos::utils::createFence(myDevice, myPresentFence);
 	assert(result == VK_SUCCESS);
 
 
@@ -1389,24 +1384,17 @@ bool renderSingleFrame(const VkDevice theDevice,
 	VkResult result;
 	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
 
-
-	VkSemaphoreCreateInfo semaphoreCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-	};
-
 	// Create a semaphore that will be signalled when a swapchain image is ready to use,
 	// and that will be waited upon by the queue before starting all the rendering/present commands.
 	//
 	// Note: in a "real" application, you would create the semaphore only once at program initialization,
 	// and not every frame (for performance reasons).
-	result = vkCreateSemaphore(theDevice, &semaphoreCreateInfo, nullptr, &imageAcquiredSemaphore);
+	result = vkdemos::utils::createSemaphore(theDevice, imageAcquiredSemaphore);
 	assert(result == VK_SUCCESS);
 
 	// Create another semaphore that will be signalled when the queue has terminated the rendering commands,
 	// and that will be waited upon by the actual present operation.
-	result = vkCreateSemaphore(theDevice, &semaphoreCreateInfo, nullptr, &renderingCompletedSemaphore);
+	result = vkdemos::utils::createSemaphore(theDevice, renderingCompletedSemaphore);
 	assert(result == VK_SUCCESS);
 
 

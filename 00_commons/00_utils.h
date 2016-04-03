@@ -128,6 +128,47 @@ int findMemoryTypeWithProperties(const VkPhysicalDeviceMemoryProperties theMemor
 	return -1;
 }
 
+
+
+/**
+ * Utility function to create a VkFence on a specified VkDevice.
+ * @param theDevice the device from which to create the fence.
+ * @param outFence the created fence
+ * @return VkResult returned by vkCreateFence
+ */
+VkResult createFence(const VkDevice theDevice, VkFence & outFence)
+{
+
+	VkFenceCreateInfo fenceCreateInfo = {
+	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+	    .pNext = nullptr,
+	    .flags = 0
+	};
+
+	return vkCreateFence(theDevice, &fenceCreateInfo, nullptr, &outFence);
+}
+
+
+
+/**
+ * Utility function to create a VkSemaphore on a specified VkDevice.
+ * @param theDevice the device from which to create the semaphore.
+ * @param outSemaphore the created semaphore
+ * @return VkResult returned by vkCreateSemaphore
+ */
+VkResult createSemaphore(const VkDevice theDevice, VkSemaphore & outSemaphore)
+{
+
+	VkSemaphoreCreateInfo semaphoreCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+	};
+
+	return vkCreateSemaphore(theDevice, &semaphoreCreateInfo, nullptr, &outSemaphore);
+}
+
+
 }}	// vkdemos::utils
 
 #endif
