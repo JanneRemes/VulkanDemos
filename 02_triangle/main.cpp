@@ -60,7 +60,6 @@ static const TriangleDemoVertex vertices[NUM_DEMO_VERTICES] =
  */
 bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkImage theDepthImage);
 bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
-                                const VkImage theCurrentSwapchainImage,
                                 const VkFramebuffer theCurrentFramebuffer,
                                 const VkRenderPass theRenderPass,
                                 const VkPipeline thePipeline,
@@ -471,7 +470,7 @@ bool createAndAllocateBuffer(const VkDevice theDevice,
 /**
  * Loads a SPIR-V shader from file in path "filename" and creates a VkShaderModule from it.
  */
-bool loadAndCreateShaderModule(const VkDevice theDevice, const std::string filename, VkShaderModule & outShaderModule)
+bool loadAndCreateShaderModule(const VkDevice theDevice, const std::string & filename, VkShaderModule & outShaderModule)
 {
 	VkResult result;
 
@@ -702,9 +701,9 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	 * whatever the framebuffer contains at that moment.
 	 */
 
-	// You need to create a VkPipelineColorBlendAttachmentState for each color attachment
-	// you have on the subpass of the renderpass where this pipeline will be used.
-	// (We have only one)
+	// We need to create a VkPipelineColorBlendAttachmentState for each color attachment
+	// we have on the subpass of the renderpass where this pipeline will be used.
+	// (We have only one in this demo)
 	VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {
 		.blendEnable = VK_FALSE,   // Disable blending for this demo. All the other values in this struct are ignored except colorWriteMask.
 		.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
@@ -1261,7 +1260,6 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer,
  * The commands consist in
  */
 bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
-                                const VkImage theCurrentSwapchainImage,
                                 const VkFramebuffer theCurrentFramebuffer,
                                 const VkRenderPass theRenderPass,
                                 const VkPipeline thePipeline,
@@ -1434,7 +1432,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 	/*
 	 * Fill the present command buffer with... the present commands.
 	 */
-	bool boolResult = fillRenderingCommandBuffer(thePresentCmdBuffer, theSwapchainImagesVector[imageIndex], theFramebuffersVector[imageIndex], theRenderPass, thePipeline, theVertexBuffer, width, height);
+	bool boolResult = fillRenderingCommandBuffer(thePresentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, theVertexBuffer, width, height);
 	assert(boolResult);
 
 
