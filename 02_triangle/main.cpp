@@ -71,7 +71,6 @@ bool renderSingleFrame(const VkDevice theDevice,
                        const VkQueue theQueue,
                        const VkSwapchainKHR theSwapchain,
                        const VkCommandBuffer thePresentCmdBuffer,
-                       const std::vector<VkImage> & theSwapchainImagesVector,
                        const std::vector<VkFramebuffer> & theFramebuffersVector,
                        const VkRenderPass theRenderPass,
                        const VkPipeline thePipeline,
@@ -1080,7 +1079,7 @@ int main(int argc, char* argv[])
 		{
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myFramebuffersVector, myRenderPass, myPipeline, myVertexBuffer, windowWidth, windowHeight, myPresentFence);
+			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, myFramebuffersVector, myRenderPass, myPipeline, myVertexBuffer, windowWidth, windowHeight, myPresentFence);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -1375,7 +1374,6 @@ bool renderSingleFrame(const VkDevice theDevice,
                        const VkQueue theQueue,
                        const VkSwapchainKHR theSwapchain,
                        const VkCommandBuffer thePresentCmdBuffer,
-                       const std::vector<VkImage> & theSwapchainImagesVector,
                        const std::vector<VkFramebuffer> & theFramebuffersVector,
                        const VkRenderPass theRenderPass,
                        const VkPipeline thePipeline,
