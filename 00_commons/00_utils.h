@@ -6,6 +6,9 @@
 #include <SDL2/SDL_syswm.h>
 #include <string>
 #include <iostream>
+#include <vector>
+#include <cassert>
+#include <fstream>
 
 namespace vkdemos {
 namespace utils {
@@ -132,9 +135,9 @@ int findMemoryTypeWithProperties(const VkPhysicalDeviceMemoryProperties theMemor
 
 /**
  * Utility function to create a VkFence on a specified VkDevice.
- * @param theDevice the device from which to create the fence.
- * @param outFence the created fence
- * @return VkResult returned by vkCreateFence
+ * @param theDevice the device used to create the fence.
+ * @param outFence the created fence.
+ * @return VkResult returned by vkCreateFence.
  */
 VkResult createFence(const VkDevice theDevice, VkFence & outFence)
 {
@@ -152,9 +155,9 @@ VkResult createFence(const VkDevice theDevice, VkFence & outFence)
 
 /**
  * Utility function to create a VkSemaphore on a specified VkDevice.
- * @param theDevice the device from which to create the semaphore.
- * @param outSemaphore the created semaphore
- * @return VkResult returned by vkCreateSemaphore
+ * @param theDevice the device used to create the semaphore.
+ * @param outSemaphore the created semaphore.
+ * @return VkResult returned by vkCreateSemaphore.
  */
 VkResult createSemaphore(const VkDevice theDevice, VkSemaphore & outSemaphore)
 {
@@ -166,6 +169,103 @@ VkResult createSemaphore(const VkDevice theDevice, VkSemaphore & outSemaphore)
 	};
 
 	return vkCreateSemaphore(theDevice, &semaphoreCreateInfo, nullptr, &outSemaphore);
+}
+
+
+
+/**
+ * Creates a VkFramebuffer object from a set of VkImageViews.
+ * @param theDevice the device used to create the framebuffer.
+ * @param theRenderPass the renderpass the framebuffer will be used in.
+ * @param theViewAttachmentsVector list of all the attachments that will compose this framebuffer.
+ * @param width width of the framebuffer.
+ * @param height height of the framebuffer.
+ * @param outFramebuffer the resulting VkFramebuffer object.
+ * @return VkResult returned by vkCreateFramebuffer.
+ */
+bool createFramebuffer(const VkDevice theDevice,
+                       const VkRenderPass theRenderPass,
+                       const std::vector<VkImageView> & theViewAttachmentsVector,
+                       const int width,
+                       const int height,
+                       VkFramebuffer & outFramebuffer
+                       )
+{
+	VkResult result;
+
+	const VkFramebufferCreateInfo framebufferCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.renderPass = theRenderPass,
+		.attachmentCount = (uint32_t)theViewAttachmentsVector.size(),
+		.pAttachments = theViewAttachmentsVector.data(),
+		.width = (uint32_t)width,
+		.height = (uint32_t)height,
+		.layers = 1,
+	};
+
+	VkFramebuffer myFramebuffer;
+	result = vkCreateFramebuffer(theDevice, &framebufferCreateInfo, nullptr, &myFramebuffer);
+	assert(result == VK_SUCCESS);
+
+	outFramebuffer = myFramebuffer;
+	return true;
+}
+
+
+
+/**
+ * Loads a SPIR-V shader from file in path "filename" and creates a VkShaderModule from it.
+ * @param theDevice the device used to create the modules.
+ * @param filename path and file name of the file containing the shader in SPIR-V format.
+ * @param outShaderModule the created VkShaderModule object.
+ * @return VkResult returned by vkCreateShaderModule.
+ */
+bool loadAndCreateShaderModule(const VkDevice theDevice, const std::string & filename, VkShaderModule & outShaderModule)
+{
+	VkResult result;
+
+	/*
+	 * Read file into memory.
+	 */
+	std::ifstream inFile;
+	inFile.open(filename, std::ios_base::binary | std::ios_base::ate);
+
+	if(!inFile) {
+		std::cout << "!!! ERROR: couldn't open shader file \"" << filename << "\" for reading." << std::endl;
+		return false;
+	}
+
+	long fileSize = inFile.tellg();
+	std::vector<char> fileContents((size_t)fileSize);
+
+	inFile.seekg(0, std::ios::beg);
+	bool readStat = bool(inFile.read(fileContents.data(), fileSize));
+	inFile.close();
+
+	if(!readStat) {
+		std::cout << "!!! ERROR: couldn't read shader file \"" << filename << "\"." << std::endl;
+		return false;
+	}
+
+	/*
+	 * Create shader module.
+	 */
+	VkShaderModuleCreateInfo shaderModuleCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.codeSize = fileContents.size(),
+		.pCode = reinterpret_cast<uint32_t*>(fileContents.data()),
+	};
+
+	VkShaderModule myModule;
+	result = vkCreateShaderModule(theDevice, &shaderModuleCreateInfo, nullptr, &myModule);
+	assert(result == VK_SUCCESS);
+
+	outShaderModule = myModule;
+	return true;
 }
 
 

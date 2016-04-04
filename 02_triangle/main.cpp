@@ -12,6 +12,8 @@
 #include "../00_commons/05_createVkDeviceAndVkQueue.h"
 #include "../00_commons/06_swapchain.h"
 #include "../00_commons/07_commandPoolAndBuffer.h"
+#include "../00_commons/08_createAndAllocateImage.h"
+#include "../00_commons/09_createAndAllocateBuffer.h"
 
 // Includes for this file
 #include <iostream>
@@ -59,214 +61,347 @@ static const TriangleDemoVertex vertices[NUM_DEMO_VERTICES] =
  * Prototypes for functions defined in this file.
  */
 bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkImage theDepthImage);
-bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
-                                const VkFramebuffer theCurrentFramebuffer,
-                                const VkRenderPass theRenderPass,
-                                const VkPipeline thePipeline,
-                                const VkBuffer theVertexBuffer,
-                                const int width,
-                                const int height
-                                );
-bool renderSingleFrame(const VkDevice theDevice,
-                       const VkQueue theQueue,
-                       const VkSwapchainKHR theSwapchain,
-                       const VkCommandBuffer thePresentCmdBuffer,
-                       const std::vector<VkFramebuffer> & theFramebuffersVector,
-                       const VkRenderPass theRenderPass,
-                       const VkPipeline thePipeline,
-                       const VkBuffer theVertexBuffer,
-                       const int width,
-                       const int height,
-                       const VkFence thePresentFence
-                       );
-
+bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkFramebuffer theCurrentFramebuffer, const VkRenderPass theRenderPass, const VkPipeline thePipeline, const VkBuffer theVertexBuffer, const int width, const int height);
+bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const VkCommandBuffer thePresentCmdBuffer, const std::vector<VkFramebuffer> & theFramebuffersVector, const VkRenderPass theRenderPass, const VkPipeline thePipeline, const VkBuffer theVertexBuffer, const int width, const int height, const VkFence thePresentFence);
+bool createTriangleDemoPipeline(const VkDevice theDevice, const VkRenderPass theRenderPass, const VkPipelineLayout thePipelineLayout, VkPipeline & outPipeline);
+bool createTriangleDemoRenderPass(const VkDevice theDevice, const VkFormat theSwapchainImagesFormat, const VkFormat theDepthBufferFormat, VkRenderPass & outRenderPass);
 
 
 
 /**
- * Creates a VkImage and allocates memory for it.
- * The image is created with layout VK_IMAGE_LAYOUT_UNDEFINED,
- * and must be transitioned to the appropriate layout.
- *
- * If outImageViewPtr is not nullptr, a VkImageView for the new image is created.
+ * Good ol' main function.
  */
-bool createAndAllocateImage(const VkDevice theDevice,
-                            const VkPhysicalDeviceMemoryProperties theMemoryProperties,
-                            const VkBufferUsageFlags imageUsage,
-                            const VkMemoryPropertyFlags requiredMemoryProperties,
-                            const VkFormat theImageFormat,
-                            const int width,
-                            const int height,
-                            VkImage & outImage,
-                            VkDeviceMemory & outImageMemory,
-                            VkImageView * outImageViewPtr = nullptr,
-                            VkImageAspectFlags viewSubresourceAspectMask = 0
-                            )
+int main(int argc, char* argv[])
 {
+	static int windowWidth = 800;
+	static int windowHeight = 600;
+	static const char * applicationName = "SdlVulkanDemo_02_triangle";
+	static const char * engineName = applicationName;
+
+	bool boolResult;
 	VkResult result;
-	VkImage myImage;
-	VkImageView myImageView;
-	VkDeviceMemory myImageMemory;
 
 	/*
-	 * Create the VkImage.
-	 *
-	 * When we create the VkImage object with vkCreateImage, we only create a
-	 * CPU-side object, that contains all the metadata of the image, but
-	 * no GPU memory is allocated for storing its contents.
+	 * SDL2 Initialization
 	 */
-	const VkImageCreateInfo imageCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.imageType = VK_IMAGE_TYPE_2D,
-		.format = theImageFormat,
-		.extent = {(uint32_t)width, (uint32_t)height, 1},
-		.mipLevels = 1,
-		.arrayLayers = 1,
-		.samples = VK_SAMPLE_COUNT_1_BIT,
-		.tiling = VK_IMAGE_TILING_OPTIMAL,
-		.usage = imageUsage,
-	    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,  // access exclusive to a single queue family at a time
-	    .queueFamilyIndexCount = 0,                // unused in sharing mode exclusive
-	    .pQueueFamilyIndices = nullptr,            // unused in sharing mode exclusive
-	    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-	};
+	SDL_Window *mySdlWindow;
+	SDL_SysWMinfo mySdlSysWmInfo;
 
-	result = vkCreateImage(theDevice, &imageCreateInfo, nullptr, &myImage);
+	boolResult = vkdemos::utils::sdl2Initialization(applicationName, windowWidth, windowHeight, mySdlWindow, mySdlSysWmInfo);
+	assert(boolResult);
+
+	/*
+	 * Basic Vulkan initialization; we create a VkInstance, VkPhysicalDevice, VkDevice & VkQueue, and a swapchain.
+	 * For more informations on this process, refer to Demo 01 and to the implementations of the various functions
+	 * in directory "00_commons".
+	 */
+	std::vector<const char *> layersNamesToEnable;
+	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_threading");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
+	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
+	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
+	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
+
+	std::vector<const char *> extensionsNamesToEnable;
+	extensionsNamesToEnable.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+	extensionsNamesToEnable.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME); // TODO: add support for other windowing systems
+
+	VkInstance myInstance;
+	boolResult = vkdemos::createVkInstance(layersNamesToEnable, extensionsNamesToEnable, applicationName, engineName, myInstance);
+	assert(boolResult);
+
+	VkDebugReportCallbackEXT myDebugReportCallback;
+	vkdemos::createDebugReportCallback(myInstance,
+		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT /*| VK_DEBUG_REPORT_INFORMATION_BIT_EXT*/ | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
+		vkdemos::debugCallback,
+		myDebugReportCallback
+	);
+
+	VkPhysicalDevice myPhysicalDevice;
+	boolResult = vkdemos::chooseVkPhysicalDevice(myInstance, 0, myPhysicalDevice);
+	assert(boolResult);
+
+	VkSurfaceKHR mySurface;
+	boolResult = vkdemos::createVkSurface(myInstance, mySdlSysWmInfo, mySurface);
+	assert(boolResult);
+
+	VkDevice myDevice;
+	VkQueue myQueue;
+	uint32_t myQueueFamilyIndex;
+	boolResult = vkdemos::createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, layersNamesToEnable, myDevice, myQueue, myQueueFamilyIndex);
+	assert(boolResult);
+
+	VkSwapchainKHR mySwapchain;
+	VkFormat mySurfaceFormat;
+	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
+	assert(boolResult);
+
+	std::vector<VkImage> mySwapchainImagesVector;
+	std::vector<VkImageView> mySwapchainImageViewsVector;
+	boolResult = vkdemos::getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
+	assert(boolResult);
+
+	VkCommandPool myCommandPool;
+	boolResult = vkdemos::createCommandPool(myDevice, myQueueFamilyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, myCommandPool);
+	assert(boolResult);
+
+	VkCommandBuffer myCmdBufferInitialization;
+	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferInitialization);
+	assert(boolResult);
+
+	VkCommandBuffer myCmdBufferPresent;
+	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
+	assert(boolResult);
+
+	VkFence myPresentFence;
+	result = vkdemos::utils::createFence(myDevice, myPresentFence);
 	assert(result == VK_SUCCESS);
 
 
 	/*
-	 * Allocate memory for the image.
-	 *
-	 * To allocate the necessary GPU memory to store the contents of our image,
-	 * we must find an appropriate memory heap that supports all the requirements
-	 * (alignment, GPU/CPU visiblity etc) that our image needs.
-	 *
-	 * With vkGetImageMemoryRequirements, we query the VkImage object we just created,
-	 * so that we then know what type of memory heap to search for in the VkDevice.
+	 * New initializations for this demo.
 	 */
+	VkPhysicalDeviceMemoryProperties myMemoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(myPhysicalDevice, &myMemoryProperties);
 
-	// Get the memory requirements for our image.
-	VkMemoryRequirements memoryRequirements;
-	vkGetImageMemoryRequirements(theDevice, myImage, &memoryRequirements);
+	// Create the Depth Buffer's Image and View.
+	const VkFormat myDepthBufferFormat = VK_FORMAT_D16_UNORM;
 
-	// Find an appropriate memory type with all the requirements for our image.
-	int memoryTypeIndex = vkdemos::utils::findMemoryTypeWithProperties(theMemoryProperties, memoryRequirements.memoryTypeBits, requiredMemoryProperties);
-	if(memoryTypeIndex < 0) {
-		std::cout << "!!! ERROR: Can't find a memory type to hold the image." << std::endl;
-		return false;
+	VkImage myDepthImage;
+	VkImageView myDepthImageView;
+	VkDeviceMemory myDepthMemory;
+	boolResult = vkdemos::createAndAllocateImage(myDevice,
+	                                    myMemoryProperties,
+	                                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+	                                    0,
+	                                    myDepthBufferFormat,
+	                                    windowWidth,
+	                                    windowHeight,
+	                                    myDepthImage,
+	                                    myDepthMemory,
+	                                    &myDepthImageView,
+	                                    VK_IMAGE_ASPECT_DEPTH_BIT
+	                                    );
+	assert(boolResult);
+
+
+	// Create the renderpass.
+	VkRenderPass myRenderPass;
+	boolResult = createTriangleDemoRenderPass(myDevice, mySurfaceFormat, myDepthBufferFormat, myRenderPass);
+	assert(boolResult);
+
+	// Create the Framebuffers, based on the number of swapchain images.
+	std::vector<VkFramebuffer> myFramebuffersVector;
+	myFramebuffersVector.reserve(mySwapchainImageViewsVector.size());
+
+	for(const auto view : mySwapchainImageViewsVector) {
+		VkFramebuffer fb;
+		boolResult = vkdemos::utils::createFramebuffer(myDevice, myRenderPass, {view, myDepthImageView}, windowWidth, windowHeight, fb);
+		assert(boolResult);
+		myFramebuffersVector.push_back(fb);
 	}
 
-	// Allocate memory for the image.
-	const VkMemoryAllocateInfo memoryAllocateInfo = {
-		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.allocationSize = memoryRequirements.size,
-		.memoryTypeIndex = (uint32_t)memoryTypeIndex,
-	};
 
-	result = vkAllocateMemory(theDevice, &memoryAllocateInfo, nullptr, &myImageMemory);
-	assert(result == VK_SUCCESS);
+	// Create a buffer to use as the vertex buffer.
+	const size_t vertexBufferSize = sizeof(TriangleDemoVertex)*NUM_DEMO_VERTICES;
+	VkBuffer myVertexBuffer;
+	VkDeviceMemory myVertexBufferMemory;
+	boolResult = vkdemos::createAndAllocateBuffer(myDevice,
+	                                     myMemoryProperties,
+	                                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+	                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+	                                     vertexBufferSize,
+	                                     myVertexBuffer,
+	                                     myVertexBufferMemory
+	                                     );
+	assert(boolResult);
 
-
-	/*
-	 * Bind the allocated memory to the image.
-	 *
-	 * After we created a VkImage, queried its memory requirements, and allocated
-	 * some appropriate VkDeviceMemory, we can tell Vulkan to use that VkDeviceMemory
-	 * as a storage area for our VkImage object.
-	 * This connection is established with vkBindImageMemory.
-	 *
-	 * Note that you could allocate a VkDeviceMemory much larger than needed for a single
-	 * VkImage: this way you can bind many VkImages (with the same memory requirements)
-	 * on different offsets inside the VkDeviceMemory.
-	 * This is done mainly to ammortize the cost of memory allocation (there is a potentially large
-	 * space and time overhead in each memory allocation), or it can be used for advanced techniques
-	 * such as memory aliasing.
-	 * In these demoes we just allocate a new VkDeviceMemory for each single VkImage, for simplicity.
-	 */
-	result = vkBindImageMemory(theDevice, myImage, myImageMemory, 0);
-	assert(result == VK_SUCCESS);
-
-	outImage = myImage;
-	outImageMemory = myImageMemory;
-
-	/*
-	 * Create a View for the image.
-	 */
-	if(outImageViewPtr != nullptr)
+	// Map vertex buffer and insert data
 	{
-		const VkImageViewCreateInfo imageViewCreateInfo = {
-			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-			.pNext = nullptr,
-			.flags = 0,
-			.image = myImage,
-			.format = theImageFormat,
-			.subresourceRange = {
-				.aspectMask = viewSubresourceAspectMask,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1
-			},
-			.components = {
-				.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-				.g = VK_COMPONENT_SWIZZLE_IDENTITY,
-				.b = VK_COMPONENT_SWIZZLE_IDENTITY,
-				.a = VK_COMPONENT_SWIZZLE_IDENTITY
-			},
-			.viewType = VK_IMAGE_VIEW_TYPE_2D,
-		};
-
-		result = vkCreateImageView(theDevice, &imageViewCreateInfo, nullptr, &myImageView);
+		void *mappedBuffer;
+		result = vkMapMemory(myDevice, myVertexBufferMemory, 0, VK_WHOLE_SIZE, 0, &mappedBuffer);
 		assert(result == VK_SUCCESS);
 
-		*outImageViewPtr = myImageView;
+		memcpy(mappedBuffer, vertices, vertexBufferSize);
+
+		vkUnmapMemory(myDevice, myVertexBufferMemory);
 	}
 
-	return true;
-}
 
-
-
-
-
-
-/**
- * Creates a VkFramebuffer object from a set of VkImageViews.
- */
-bool createFramebuffer(const VkDevice theDevice,
-                       const VkRenderPass theRenderPass,
-                       const std::vector<VkImageView> & theViewAttachmentsVector,
-                       const int width,
-                       const int height,
-                       VkFramebuffer & outFramebuffer
-                       )
-{
-	VkResult result;
-
-	const VkFramebufferCreateInfo framebufferCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+	// Create the pipeline.
+	const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.renderPass = theRenderPass,
-		.attachmentCount = (uint32_t)theViewAttachmentsVector.size(),
-		.pAttachments = theViewAttachmentsVector.data(),
-		.width = (uint32_t)width,
-		.height = (uint32_t)height,
-		.layers = 1,
+		.setLayoutCount = 0,
+		.pSetLayouts = nullptr,
+		.pushConstantRangeCount = 0,
+		.pPushConstantRanges = nullptr,
 	};
 
-	VkFramebuffer myFramebuffer;
-	result = vkCreateFramebuffer(theDevice, &framebufferCreateInfo, nullptr, &myFramebuffer);
+	VkPipelineLayout myPipelineLayout;
+	result = vkCreatePipelineLayout(myDevice, &pipelineLayoutCreateInfo, nullptr, &myPipelineLayout);
 	assert(result == VK_SUCCESS);
 
-	outFramebuffer = myFramebuffer;
-	return true;
-}
 
+	// Create Pipeline.
+	VkPipeline myPipeline;
+	boolResult = createTriangleDemoPipeline(myDevice, myRenderPass, myPipelineLayout, myPipeline);
+	assert(boolResult);
+
+
+	/*
+	 * We completed the creation and allocation of all the resources we need!
+	 * Now it's time to build and submit the first command buffer that will contain
+	 * all the initialization commands, such as transitioning the images from
+	 * VK_IMAGE_LAYOUT_UNDEFINED to something sensible.
+	 */
+
+	// We fill the initialization command buffer with... the initialization commands.
+	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector, myDepthImage);
+	assert(boolResult);
+
+	// We now submit the command buffer to the queue we created before, and we wait
+	// for its completition.
+	VkSubmitInfo submitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.pNext = nullptr,
+		.waitSemaphoreCount = 0,
+		.pWaitSemaphores = nullptr,
+		.pWaitDstStageMask = nullptr,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &myCmdBufferInitialization,
+		.signalSemaphoreCount = 0,
+		.pSignalSemaphores = nullptr
+	};
+
+	result = vkQueueSubmit(myQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	assert(result == VK_SUCCESS);
+
+	// Wait for the queue to complete its work.
+	result = vkQueueWaitIdle(myQueue);
+	assert(result == VK_SUCCESS);
+
+	std::cout << "\n---- Rendering Start ----" << std::endl;
+
+	/*
+	 * Event loop
+	 */
+	SDL_Event sdlEvent;
+	bool quit = false;
+
+	// Just some variables for frame statistics
+	long frameNumber = 0;
+	long frameMaxTime = LONG_MIN;
+	long frameMinTime = LONG_MAX;
+	long frameAvgTimeSum = 0;
+	long frameAvgTimeSumSquare = 0;
+	constexpr long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
+
+	// The main event/render loop.
+	while(!quit)
+	{
+		// Process events for this frame
+		while(SDL_PollEvent(&sdlEvent))
+		{
+			if (sdlEvent.type == SDL_QUIT) {
+				quit = true;
+			}
+			if (sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
+				quit = true;
+			}
+		}
+
+		// Rendering code
+		if(!quit)
+		{
+			// Render a single frame
+			auto renderStartTime = std::chrono::high_resolution_clock::now();
+			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, myFramebuffersVector, myRenderPass, myPipeline, myVertexBuffer, windowWidth, windowHeight, myPresentFence);
+			auto renderStopTime = std::chrono::high_resolution_clock::now();
+
+			// Compute frame time statistics
+			auto elapsedTimeUs = std::chrono::duration_cast<std::chrono::microseconds>(renderStopTime - renderStartTime).count();
+
+			frameMaxTime = std::max(frameMaxTime, elapsedTimeUs);
+			frameMinTime = std::min(frameMinTime, elapsedTimeUs);
+			frameAvgTimeSum += elapsedTimeUs;
+			frameAvgTimeSumSquare += elapsedTimeUs*elapsedTimeUs;
+
+			// Print statistics if necessary
+			if(frameNumber % FRAMES_PER_STAT == 0)
+			{
+				auto average = frameAvgTimeSum/FRAMES_PER_STAT;
+				auto stddev = std::sqrt(frameAvgTimeSumSquare/FRAMES_PER_STAT - average*average);
+				std::cout << "Frame time: average " << std::setw(6) << average
+				          << " us, maximum " << std::setw(6) << frameMaxTime
+				          << " us, minimum " << std::setw(6) << frameMinTime
+				          << " us, stddev " << (long)stddev
+				          << " (" << std::fixed << std::setprecision(2) << (stddev/average * 100.0f) << "%)"
+				          << std::endl;
+
+				frameMaxTime = LONG_MIN;
+				frameMinTime = LONG_MAX;
+				frameAvgTimeSum = 0;
+				frameAvgTimeSumSquare = 0;
+			}
+
+			frameNumber++;
+		}
+	}
+
+
+	/*
+	 * Deinitialization
+	 */
+	// We wait for pending operations to complete before starting to destroy stuff.
+	result = vkQueueWaitIdle(myQueue);
+	assert(result == VK_SUCCESS);
+
+	vkDestroyPipeline(myDevice, myPipeline, nullptr);
+	vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
+
+	// Destroy vertex buffer and free its memory.
+	vkDestroyBuffer(myDevice, myVertexBuffer, nullptr);
+	vkFreeMemory(myDevice, myVertexBufferMemory, nullptr);
+
+	// Destroy framebuffers.
+	for(auto framebuffer : myFramebuffersVector)
+		vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
+
+	// Destroy renderpass.
+	vkDestroyRenderPass(myDevice, myRenderPass, nullptr);
+
+	// Destroy View, Image and release memory of our depth buffer.
+	vkDestroyImageView(myDevice, myDepthImageView, nullptr);
+	vkDestroyImage(myDevice, myDepthImage, nullptr);
+	vkFreeMemory(myDevice, myDepthMemory, nullptr);
+
+	/*
+	 * For more informations on the following commands, refer to Demo 01.
+	 */
+	vkDestroyFence(myDevice, myPresentFence, nullptr);
+	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
+
+	for(auto imgView : mySwapchainImageViewsVector)
+		vkDestroyImageView(myDevice, imgView, nullptr);
+
+	vkDestroySwapchainKHR(myDevice, mySwapchain, nullptr);
+	vkDestroyDevice(myDevice, nullptr);
+	vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
+	vkdemos::destroyDebugReportCallback(myInstance, myDebugReportCallback);
+	vkDestroyInstance(myInstance, nullptr);
+
+	SDL_DestroyWindow(mySdlWindow);
+	SDL_Quit();
+
+	return 0;
+}
 
 
 
@@ -390,133 +525,6 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 
 
 
-
-/**
- * Creates a VkBuffer and allocates memory for it.
- *
- * This function is basically identical to createAndAllocateImage;
- * for an extended explanation of Vulkan's memory binding, refer
- * to createAndAllocateImage's implementation.
- */
-bool createAndAllocateBuffer(const VkDevice theDevice,
-                             const VkPhysicalDeviceMemoryProperties theMemoryProperties,
-                             const VkBufferUsageFlags bufferUsage,
-                             const VkMemoryPropertyFlags requiredMemoryProperties,
-                             const VkDeviceSize bufferSize,
-                             VkBuffer & outBuffer,
-                             VkDeviceMemory & outBufferMemory
-                             )
-{
-	VkResult result;
-	VkBuffer myBuffer;
-	VkDeviceMemory myBufferMemory;
-
-	/*
-	 * Create the VkBuffer object.
-	 */
-	const VkBufferCreateInfo bufferCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.size = bufferSize,
-		.usage = bufferUsage,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,  // access exclusive to a single queue family at a time
-		.queueFamilyIndexCount = 0,                // unused in sharing mode exclusive
-		.pQueueFamilyIndices = nullptr,            // unused in sharing mode exclusive
-	};
-
-	result = vkCreateBuffer(theDevice, &bufferCreateInfo, nullptr, &myBuffer);
-	assert(result == VK_SUCCESS);
-
-	// Get memory requirements for the buffer.
-	VkMemoryRequirements memoryRequirements;
-	vkGetBufferMemoryRequirements(theDevice, myBuffer, &memoryRequirements);
-
-	// Find an appropriate memory type with all the requirements for our buffer
-	int memoryTypeIndex = vkdemos::utils::findMemoryTypeWithProperties(theMemoryProperties, memoryRequirements.memoryTypeBits, requiredMemoryProperties);
-	if(memoryTypeIndex < 0) {
-		std::cout << "!!! ERROR: Can't find a memory type to hold the buffer." << std::endl;
-		return false;
-	}
-
-	/*
-	 * Allocate memory for the buffer.
-	 */
-	const VkMemoryAllocateInfo memoryAllocateInfo = {
-		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.allocationSize = memoryRequirements.size,
-		.memoryTypeIndex = (uint32_t)memoryTypeIndex,
-	};
-
-	result = vkAllocateMemory(theDevice, &memoryAllocateInfo, nullptr, &myBufferMemory);
-	assert(result == VK_SUCCESS);
-
-	/*
-	 * Bind the allocated memory to the buffer.
-	 */
-	result = vkBindBufferMemory(theDevice, myBuffer, myBufferMemory, 0);
-	assert(result == VK_SUCCESS);
-
-	outBuffer = myBuffer;
-	outBufferMemory = myBufferMemory;
-	return true;
-}
-
-
-
-
-/**
- * Loads a SPIR-V shader from file in path "filename" and creates a VkShaderModule from it.
- */
-bool loadAndCreateShaderModule(const VkDevice theDevice, const std::string & filename, VkShaderModule & outShaderModule)
-{
-	VkResult result;
-
-	/*
-	 * Read file into memory.
-	 */
-	std::ifstream inFile;
-	inFile.open(filename, std::ios_base::binary | std::ios_base::ate);
-
-	if(!inFile) {
-		std::cout << "!!! ERROR: couldn't open shader file \"" << filename << "\" for reading." << std::endl;
-		return false;
-	}
-
-	long fileSize = inFile.tellg();
-	std::vector<char> fileContents((size_t)fileSize);
-
-	inFile.seekg(0, std::ios::beg);
-	bool readStat = bool(inFile.read(fileContents.data(), fileSize));
-	inFile.close();
-
-	if(!readStat) {
-		std::cout << "!!! ERROR: couldn't read shader file \"" << filename << "\"." << std::endl;
-		return false;
-	}
-
-	/*
-	 * Create shader module.
-	 */
-	VkShaderModuleCreateInfo shaderModuleCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.codeSize = fileContents.size(),
-		.pCode = reinterpret_cast<uint32_t*>(fileContents.data()),
-	};
-
-	VkShaderModule myModule;
-	result = vkCreateShaderModule(theDevice, &shaderModuleCreateInfo, nullptr, &myModule);
-	assert(result == VK_SUCCESS);
-
-	outShaderModule = myModule;
-	return true;
-}
-
-
-
 /**
  * Create the VkPipeline for this demo.
  *
@@ -542,8 +550,8 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 	 */
 	VkShaderModule vertexShaderModule, fragmentShaderModule;
 	bool b1, b2;
-	b1 = loadAndCreateShaderModule(theDevice, VERTEX_SHADER_FILENAME, vertexShaderModule);
-	b2 = loadAndCreateShaderModule(theDevice, FRAGMENT_SHADER_FILENAME, fragmentShaderModule);
+	b1 = vkdemos::utils::loadAndCreateShaderModule(theDevice, VERTEX_SHADER_FILENAME, vertexShaderModule);
+	b2 = vkdemos::utils::loadAndCreateShaderModule(theDevice, FRAGMENT_SHADER_FILENAME, fragmentShaderModule);
 
 	if(!b1 || !b2) {
 		std::cout << "!!! ERROR: couldn't create shader modules." << std::endl;
@@ -824,344 +832,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 
 
-
-/**
- * Good ol' main function.
- */
-int main(int argc, char* argv[])
-{
-	static int windowWidth = 800;
-	static int windowHeight = 600;
-	static const char * applicationName = "SdlVulkanDemo_02_triangle";
-	static const char * engineName = applicationName;
-
-	bool boolResult;
-	VkResult result;
-
-	/*
-	 * SDL2 Initialization
-	 */
-	SDL_Window *mySdlWindow;
-	SDL_SysWMinfo mySdlSysWmInfo;
-
-	boolResult = vkdemos::utils::sdl2Initialization(applicationName, windowWidth, windowHeight, mySdlWindow, mySdlSysWmInfo);
-	assert(boolResult);
-
-	/*
-	 * Basic Vulkan initialization; we create a VkInstance, VkPhysicalDevice, VkDevice & VkQueue, and a swapchain.
-	 * For more informations on this process, refer to Demo 01 and to the implementations of the various functions
-	 * in directory "00_commons".
-	 */
-	std::vector<const char *> layersNamesToEnable;
-	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_threading");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
-	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
-	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
-	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
-
-	std::vector<const char *> extensionsNamesToEnable;
-	extensionsNamesToEnable.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
-	extensionsNamesToEnable.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-	extensionsNamesToEnable.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME); // TODO: add support for other windowing systems
-
-	VkInstance myInstance;
-	boolResult = vkdemos::createVkInstance(layersNamesToEnable, extensionsNamesToEnable, applicationName, engineName, myInstance);
-	assert(boolResult);
-
-	VkDebugReportCallbackEXT myDebugReportCallback;
-	vkdemos::createDebugReportCallback(myInstance,
-		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT /*| VK_DEBUG_REPORT_INFORMATION_BIT_EXT*/ | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
-		vkdemos::debugCallback,
-		myDebugReportCallback
-	);
-
-	VkPhysicalDevice myPhysicalDevice;
-	boolResult = vkdemos::chooseVkPhysicalDevice(myInstance, 0, myPhysicalDevice);
-	assert(boolResult);
-
-	VkSurfaceKHR mySurface;
-	boolResult = vkdemos::createVkSurface(myInstance, mySdlSysWmInfo, mySurface);
-	assert(boolResult);
-
-	VkDevice myDevice;
-	VkQueue myQueue;
-	uint32_t myQueueFamilyIndex;
-	boolResult = vkdemos::createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, layersNamesToEnable, myDevice, myQueue, myQueueFamilyIndex);
-	assert(boolResult);
-
-	VkSwapchainKHR mySwapchain;
-	VkFormat mySurfaceFormat;
-	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
-	assert(boolResult);
-
-	std::vector<VkImage> mySwapchainImagesVector;
-	std::vector<VkImageView> mySwapchainImageViewsVector;
-	boolResult = vkdemos::getSwapchainImagesAndViews(myDevice, mySwapchain, mySurfaceFormat, mySwapchainImagesVector, mySwapchainImageViewsVector);
-	assert(boolResult);
-
-	VkCommandPool myCommandPool;
-	boolResult = vkdemos::createCommandPool(myDevice, myQueueFamilyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, myCommandPool);
-	assert(boolResult);
-
-	VkCommandBuffer myCmdBufferInitialization;
-	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferInitialization);
-	assert(boolResult);
-
-	VkCommandBuffer myCmdBufferPresent;
-	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
-	assert(boolResult);
-
-	VkFence myPresentFence;
-	result = vkdemos::utils::createFence(myDevice, myPresentFence);
-	assert(result == VK_SUCCESS);
-
-
-	/*
-	 * New initializations for this demo.
-	 */
-	VkPhysicalDeviceMemoryProperties myMemoryProperties;
-	vkGetPhysicalDeviceMemoryProperties(myPhysicalDevice, &myMemoryProperties);
-
-	// Create the Depth Buffer's Image and View.
-	const VkFormat myDepthBufferFormat = VK_FORMAT_D16_UNORM;
-
-	VkImage myDepthImage;
-	VkImageView myDepthImageView;
-	VkDeviceMemory myDepthMemory;
-	boolResult = createAndAllocateImage(myDevice,
-	                                    myMemoryProperties,
-	                                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-	                                    0,
-	                                    myDepthBufferFormat,
-	                                    windowWidth,
-	                                    windowHeight,
-	                                    myDepthImage,
-	                                    myDepthMemory,
-	                                    &myDepthImageView,
-	                                    VK_IMAGE_ASPECT_DEPTH_BIT
-	                                    );
-	assert(boolResult);
-
-
-	// Create the renderpass.
-	VkRenderPass myRenderPass;
-	boolResult = createTriangleDemoRenderPass(myDevice, mySurfaceFormat, myDepthBufferFormat, myRenderPass);
-	assert(boolResult);
-
-	// Create the Framebuffers, based on the number of swapchain images.
-	std::vector<VkFramebuffer> myFramebuffersVector;
-	myFramebuffersVector.reserve(mySwapchainImageViewsVector.size());
-
-	for(const auto view : mySwapchainImageViewsVector) {
-		VkFramebuffer fb;
-		boolResult = createFramebuffer(myDevice, myRenderPass, {view, myDepthImageView}, windowWidth, windowHeight, fb);
-		assert(boolResult);
-		myFramebuffersVector.push_back(fb);
-	}
-
-
-	// Create a buffer to use as the vertex buffer.
-	const size_t vertexBufferSize = sizeof(TriangleDemoVertex)*NUM_DEMO_VERTICES;
-	VkBuffer myVertexBuffer;
-	VkDeviceMemory myVertexBufferMemory;
-	boolResult = createAndAllocateBuffer(myDevice,
-	                                     myMemoryProperties,
-	                                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-	                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-	                                     vertexBufferSize,
-	                                     myVertexBuffer,
-	                                     myVertexBufferMemory
-	                                     );
-	assert(boolResult);
-
-	// Map vertex buffer and insert data
-	{
-		void *mappedBuffer;
-		result = vkMapMemory(myDevice, myVertexBufferMemory, 0, VK_WHOLE_SIZE, 0, &mappedBuffer);
-		assert(result == VK_SUCCESS);
-
-		memcpy(mappedBuffer, vertices, vertexBufferSize);
-
-		vkUnmapMemory(myDevice, myVertexBufferMemory);
-	}
-
-
-	// Create the pipeline.
-	const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.setLayoutCount = 0,
-		.pSetLayouts = nullptr,
-		.pushConstantRangeCount = 0,
-		.pPushConstantRanges = nullptr,
-	};
-
-	VkPipelineLayout myPipelineLayout;
-	result = vkCreatePipelineLayout(myDevice, &pipelineLayoutCreateInfo, nullptr, &myPipelineLayout);
-	assert(result == VK_SUCCESS);
-
-
-	// Create Pipeline.
-	VkPipeline myPipeline;
-	boolResult = createTriangleDemoPipeline(myDevice, myRenderPass, myPipelineLayout, myPipeline);
-	assert(boolResult);
-
-
-	/*
-	 * We completed the creation and allocation of all the resources we need!
-	 * Now it's time to build and submit the first command buffer that will contain
-	 * all the initialization commands, such as transitioning the images from
-	 * VK_IMAGE_LAYOUT_UNDEFINED to something sensible.
-	 */
-
-	// We fill the initialization command buffer with... the initialization commands.
-	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector, myDepthImage);
-	assert(boolResult);
-
-	// We now submit the command buffer to the queue we created before, and we wait
-	// for its completition.
-	VkSubmitInfo submitInfo = {
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.pNext = nullptr,
-		.waitSemaphoreCount = 0,
-		.pWaitSemaphores = nullptr,
-		.pWaitDstStageMask = nullptr,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &myCmdBufferInitialization,
-		.signalSemaphoreCount = 0,
-		.pSignalSemaphores = nullptr
-	};
-
-	result = vkQueueSubmit(myQueue, 1, &submitInfo, VK_NULL_HANDLE);
-	assert(result == VK_SUCCESS);
-
-	// Wait for the queue to complete its work.
-	result = vkQueueWaitIdle(myQueue);
-	assert(result == VK_SUCCESS);
-
-	std::cout << "\n---- Rendering Start ----" << std::endl;
-
-	/*
-	 * Event loop
-	 */
-	SDL_Event sdlEvent;
-	bool quit = false;
-
-	// Just some variables for frame statistics
-	long frameNumber = 0;
-	long frameMaxTime = LONG_MIN;
-	long frameMinTime = LONG_MAX;
-	long frameAvgTimeSum = 0;
-	long frameAvgTimeSumSquare = 0;
-	constexpr long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
-
-	// The main event/render loop.
-	while(!quit)
-	{
-		// Process events for this frame
-		while(SDL_PollEvent(&sdlEvent))
-		{
-			if (sdlEvent.type == SDL_QUIT) {
-				quit = true;
-			}
-			if (sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
-				quit = true;
-			}
-		}
-
-		// Rendering code
-		if(!quit)
-		{
-			// Render a single frame
-			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, myFramebuffersVector, myRenderPass, myPipeline, myVertexBuffer, windowWidth, windowHeight, myPresentFence);
-			auto renderStopTime = std::chrono::high_resolution_clock::now();
-
-			// Compute frame time statistics
-			auto elapsedTimeUs = std::chrono::duration_cast<std::chrono::microseconds>(renderStopTime - renderStartTime).count();
-
-			frameMaxTime = std::max(frameMaxTime, elapsedTimeUs);
-			frameMinTime = std::min(frameMinTime, elapsedTimeUs);
-			frameAvgTimeSum += elapsedTimeUs;
-			frameAvgTimeSumSquare += elapsedTimeUs*elapsedTimeUs;
-
-			// Print statistics if necessary
-			if(frameNumber % FRAMES_PER_STAT == 0)
-			{
-				auto average = frameAvgTimeSum/FRAMES_PER_STAT;
-				auto stddev = std::sqrt(frameAvgTimeSumSquare/FRAMES_PER_STAT - average*average);
-				std::cout << "Frame time: average " << std::setw(6) << average
-				          << " us, maximum " << std::setw(6) << frameMaxTime
-				          << " us, minimum " << std::setw(6) << frameMinTime
-				          << " us, stddev " << (long)stddev
-				          << " (" << std::fixed << std::setprecision(2) << (stddev/average * 100.0f) << "%)"
-				          << std::endl;
-
-				frameMaxTime = LONG_MIN;
-				frameMinTime = LONG_MAX;
-				frameAvgTimeSum = 0;
-				frameAvgTimeSumSquare = 0;
-			}
-
-			frameNumber++;
-		}
-	}
-
-
-	/*
-	 * Deinitialization
-	 */
-	// We wait for pending operations to complete before starting to destroy stuff.
-	result = vkQueueWaitIdle(myQueue);
-	assert(result == VK_SUCCESS);
-
-	vkDestroyPipeline(myDevice, myPipeline, nullptr);
-	vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
-
-	// Destroy vertex buffer and free its memory.
-	vkDestroyBuffer(myDevice, myVertexBuffer, nullptr);
-	vkFreeMemory(myDevice, myVertexBufferMemory, nullptr);
-
-	// Destroy framebuffers.
-	for(auto framebuffer : myFramebuffersVector)
-		vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
-
-	// Destroy renderpass.
-	vkDestroyRenderPass(myDevice, myRenderPass, nullptr);
-
-	// Destroy View, Image and release memory of our depth buffer.
-	vkDestroyImageView(myDevice, myDepthImageView, nullptr);
-	vkDestroyImage(myDevice, myDepthImage, nullptr);
-	vkFreeMemory(myDevice, myDepthMemory, nullptr);
-
-	/*
-	 * For more informations on the following commands, refer to Demo 01.
-	 */
-	vkDestroyFence(myDevice, myPresentFence, nullptr);
-	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
-
-	for(auto imgView : mySwapchainImageViewsVector)
-		vkDestroyImageView(myDevice, imgView, nullptr);
-
-	vkDestroySwapchainKHR(myDevice, mySwapchain, nullptr);
-	vkDestroyDevice(myDevice, nullptr);
-	vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
-	vkdemos::destroyDebugReportCallback(myInstance, myDebugReportCallback);
-	vkDestroyInstance(myInstance, nullptr);
-
-	SDL_DestroyWindow(mySdlWindow);
-	SDL_Quit();
-
-	return 0;
-}
-
-
-
 /**
  * Fill the specified command buffer with the initialization commands for this demo.
  *
@@ -1177,14 +847,7 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	std::vector<VkImageMemoryBarrier> memoryBarriersVector;
 
 	/*
-	 * "The pipeline barrier specifies an execution dependency such that all work performed
-	 * by the set of pipeline stages included in srcStageMask of the first set of commands
-	 * completes before any work performed by the set of pipeline stages
-	 * included in dstStageMask of the second set of commands begins." [Section 6.5]
-	 *
-	 * Pipeline barriers are also the place were we can change layouts of our VkImages;
-	 * here we add a Pipeline Barrier for each swapchain image, to transition them
-	 * from VK_IMAGE_LAYOUT_UNDEFINED to the correct layout.
+	 * Memory barriers for the swapchain images.
 	*/
 	for(const auto & image : theSwapchainImagesVector)
 	{
