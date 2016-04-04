@@ -12,6 +12,11 @@ File and function list:
 
 	- `VkResultToString`: converts a VkResult into its ASCII string representation.
 	- `sdl2Initialization`: executes SDL2 initialization and creates a window.
+	- `findMemoryTypeWithProperties`: Search a memory type with the required properties from a VkPhysicalDeviceMemoryProperties object.
+	- `createFence`: Utility function to create a VkFence on a specified VkDevice.
+	- `createSemaphore`: Utility function to create a VkSemaphore on a specified VkDevice.
+	- `createFramebuffer`: Utility function to create a VkFramebuffer object from a set of VkImageViews.
+	- `loadAndCreateShaderModule`: Loads a SPIR-V shader from file and creates a VkShaderModule from it.
 
 - 01_createVkInstance.h
 
@@ -45,4 +50,12 @@ File and function list:
 
 	- `createCommandPool`: creates a VkCommandPool from the specified VkDevice.
 	- `allocateCommandBuffer`: creates a VkCommandBuffer from the specified VkDevice and VkCommandPool
+
+- 08_createAndAllocateImage.h
+
+	- `createAndAllocateImage`: Creates a VkImage and allocates memory for it.
+
+- 09_createAndAllocateBuffer.h
+
+	- `createAndAllocateBuffer`: Creates a VkBuffer and allocates memory for it.
 

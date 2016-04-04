@@ -103,7 +103,7 @@ bool sdl2Initialization(const std::string & windowTitle,
 
 
 /**
- * Search a memory type with the required properties.
+ * Search a memory type with the required properties from a VkPhysicalDeviceMemoryProperties object.
  * @param theMemoryProperties memory properties of the Physical Device from where we would like to allocate our object.
  * @param memoryTypeBits memoryTypeBits field from the VkMemoryRequirements of the object we want to allocate.
  * @param requiredMemoryProperties additional properties we want the memory type to have.
@@ -174,7 +174,7 @@ VkResult createSemaphore(const VkDevice theDevice, VkSemaphore & outSemaphore)
 
 
 /**
- * Creates a VkFramebuffer object from a set of VkImageViews.
+ * Utility function to create a VkFramebuffer object from a set of VkImageViews.
  * @param theDevice the device used to create the framebuffer.
  * @param theRenderPass the renderpass the framebuffer will be used in.
  * @param theViewAttachmentsVector list of all the attachments that will compose this framebuffer.

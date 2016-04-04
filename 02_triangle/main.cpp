@@ -26,8 +26,6 @@
 #include <climits>
 #include <cstddef>
 
-#include <fstream>
-
 
 /*
  * Structures
