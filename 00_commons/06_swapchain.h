@@ -18,6 +18,7 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
                        const VkSurfaceKHR theSurface,
                        const int windowWidth,
                        const int windowHeight,
+                       const int ownedSwapchainImages,
                        VkSwapchainKHR theOldSwapChain,
                        VkSwapchainKHR & outSwapchain,
                        VkFormat & outSurfaceFormat
@@ -110,11 +111,9 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 
 
 	/*
-	 * Determine the number of VkImage's to use in the swap chain (we desire to
-	 * own only 1 image at a time, besides the images being displayed and
-	 * queued for display).
+	 * Determine the number of VkImage's to use in the swap chain.
 	 */
-	uint32_t desiredNumberOfSwapchainImages = surfaceCapabilities.minImageCount + 1;
+	uint32_t desiredNumberOfSwapchainImages = surfaceCapabilities.minImageCount + (uint32_t)ownedSwapchainImages;
 
 	if (surfaceCapabilities.maxImageCount > 0) {
 		// Limit the number of images, if maxImageCount is defined.

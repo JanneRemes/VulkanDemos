@@ -23,3 +23,7 @@ Demo list:
 - **02 - Triangle**
 
   The famous Triangle "Hello World": this demo shows how to create a vertex buffer and transfer data to it, how to create a renderpass, a pipeline and framebuffers, and how to send simple drawing commands to the GPU.
+
+- **03 - Double Buffering**
+
+  This demo shows how to enhance Demo 02 to do double buffering, so that the CPU can generate the next frame while the GPU renders/presents the previous one.

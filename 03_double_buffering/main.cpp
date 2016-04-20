@@ -1,4 +1,4 @@
-// Demo 02: Triangle.
+// Demo 03: Double Buffering.
 
 #define VK_USE_PLATFORM_XCB_KHR
 #include <vulkan/vulkan.h>
@@ -35,10 +35,20 @@ struct TriangleDemoVertex {
 	float r, g, b;
 };
 
+struct PerFrameData
+{
+	VkCommandBuffer presentCmdBuffer;
+	VkSemaphore imageAcquiredSemaphore;
+	VkSemaphore renderingCompletedSemaphore;
+	VkFence presentFence;
+	bool fenceInitialized;
+};
 
 /*
  * Constants
  */
+static const int FRAME_LAG = 2;		// How many frames behind the GPU is allowed to lag in respect of the CPU; for double buffering, the value is 2.
+
 static const std::string VERTEX_SHADER_FILENAME   = "vertex.spirv";
 static const std::string FRAGMENT_SHADER_FILENAME = "fragment.spirv";
 
@@ -60,7 +70,7 @@ static const TriangleDemoVertex vertices[NUM_DEMO_VERTICES] =
  */
 bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkImage theDepthImage);
 bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkFramebuffer theCurrentFramebuffer, const VkRenderPass theRenderPass, const VkPipeline thePipeline, const VkBuffer theVertexBuffer, const int width, const int height);
-bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const VkCommandBuffer thePresentCmdBuffer, const std::vector<VkFramebuffer> & theFramebuffersVector, const VkRenderPass theRenderPass, const VkPipeline thePipeline, const VkBuffer theVertexBuffer, const int width, const int height);
+bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const std::vector<VkFramebuffer> & theFramebuffersVector, const VkRenderPass theRenderPass, const VkPipeline thePipeline, const VkBuffer theVertexBuffer, PerFrameData &thePerFrameData, const int width, const int height);
 bool createTriangleDemoPipeline(const VkDevice theDevice, const VkRenderPass theRenderPass, const VkPipelineLayout thePipelineLayout, VkPipeline & outPipeline);
 bool createTriangleDemoRenderPass(const VkDevice theDevice, const VkFormat theSwapchainImagesFormat, const VkFormat theDepthBufferFormat, VkRenderPass & outRenderPass);
 
@@ -73,7 +83,7 @@ int main(int argc, char* argv[])
 {
 	static int windowWidth = 800;
 	static int windowHeight = 600;
-	static const char * applicationName = "SdlVulkanDemo_02_triangle";
+	static const char * applicationName = "SdlVulkanDemo_03_double_buffering";
 	static const char * engineName = applicationName;
 
 	bool boolResult;
@@ -89,9 +99,7 @@ int main(int argc, char* argv[])
 	assert(boolResult);
 
 	/*
-	 * Basic Vulkan initialization; we create a VkInstance, VkPhysicalDevice, VkDevice & VkQueue, and a swapchain.
-	 * For more informations on this process, refer to Demo 01 and to the implementations of the various functions
-	 * in directory "00_commons".
+	 * Vulkan initialization.
 	 */
 	std::vector<const char *> layersNamesToEnable;
 	layersNamesToEnable.push_back("VK_LAYER_LUNARG_standard_validation");
@@ -128,7 +136,7 @@ int main(int argc, char* argv[])
 
 	VkSwapchainKHR mySwapchain;
 	VkFormat mySurfaceFormat;
-	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, 1, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
+	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, FRAME_LAG, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
 	assert(boolResult);
 
 	std::vector<VkImage> mySwapchainImagesVector;
@@ -144,13 +152,9 @@ int main(int argc, char* argv[])
 	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferInitialization);
 	assert(boolResult);
 
-	VkCommandBuffer myCmdBufferPresent;
-	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
-	assert(boolResult);
-
 
 	/*
-	 * New initializations for this demo.
+	 * Initializations from Demo 02 (Triangle).
 	 */
 	VkPhysicalDeviceMemoryProperties myMemoryProperties;
 	vkGetPhysicalDeviceMemoryProperties(myPhysicalDevice, &myMemoryProperties);
@@ -242,12 +246,33 @@ int main(int argc, char* argv[])
 
 
 	/*
-	 * We completed the creation and allocation of all the resources we need!
-	 * Now it's time to build and submit the first command buffer that will contain
-	 * all the initialization commands, such as transitioning the images from
-	 * VK_IMAGE_LAYOUT_UNDEFINED to something sensible.
+	 * In the PerFrameData struct we group all the objects that are used in a single frame, and that
+	 * must remain valid for the duration of that frame.
+	 *
 	 */
+	PerFrameData perFrameDataVector[FRAME_LAG];
 
+	for(int i = 0; i < FRAME_LAG; i++)
+	{
+		boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, perFrameDataVector[i].presentCmdBuffer);
+		assert(boolResult);
+
+		result = vkdemos::utils::createFence(myDevice, perFrameDataVector[i].presentFence);
+		assert(result == VK_SUCCESS);
+
+		result = vkdemos::utils::createSemaphore(myDevice, perFrameDataVector[i].imageAcquiredSemaphore);
+		assert(result == VK_SUCCESS);
+
+		result = vkdemos::utils::createSemaphore(myDevice, perFrameDataVector[i].renderingCompletedSemaphore);
+		assert(result == VK_SUCCESS);
+
+		perFrameDataVector[i].fenceInitialized = false;
+	}
+
+
+	/*
+	 * Generation and submission of the initialization commands' command buffer.
+	 */
 	// We fill the initialization command buffer with... the initialization commands.
 	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector, myDepthImage);
 	assert(boolResult);
@@ -273,7 +298,6 @@ int main(int argc, char* argv[])
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
 
-	std::cout << "\n---- Rendering Start ----" << std::endl;
 
 	/*
 	 * Event loop
@@ -308,7 +332,7 @@ int main(int argc, char* argv[])
 		{
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, myFramebuffersVector, myRenderPass, myPipeline, myVertexBuffer, windowWidth, windowHeight);
+			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myVertexBuffer, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -349,21 +373,26 @@ int main(int argc, char* argv[])
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
 
+	// Destroy the objects in the perFrameDataVector array.
+	for(int i = 0; i < FRAME_LAG; i++)
+	{
+		vkDestroyFence(myDevice, perFrameDataVector[i].presentFence, nullptr);
+		vkDestroySemaphore(myDevice, perFrameDataVector[i].imageAcquiredSemaphore, nullptr);
+		vkDestroySemaphore(myDevice, perFrameDataVector[i].renderingCompletedSemaphore, nullptr);
+	}
+
+	/*
+	 * For more informations on the following commands, refer to Demo 02.
+	 */
 	vkDestroyPipeline(myDevice, myPipeline, nullptr);
 	vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
-
-	// Destroy vertex buffer and free its memory.
 	vkDestroyBuffer(myDevice, myVertexBuffer, nullptr);
 	vkFreeMemory(myDevice, myVertexBufferMemory, nullptr);
 
-	// Destroy framebuffers.
 	for(auto framebuffer : myFramebuffersVector)
 		vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
 
-	// Destroy renderpass.
 	vkDestroyRenderPass(myDevice, myRenderPass, nullptr);
-
-	// Destroy View, Image and release memory of our depth buffer.
 	vkDestroyImageView(myDevice, myDepthImageView, nullptr);
 	vkDestroyImage(myDevice, myDepthImage, nullptr);
 	vkFreeMemory(myDevice, myDepthMemory, nullptr);
@@ -391,7 +420,7 @@ int main(int argc, char* argv[])
 
 
 /**
- * Create the renderpass for this demo.
+ * Create the renderpass; it's the same as Demo 02 (Triangle).
  */
 bool createTriangleDemoRenderPass(const VkDevice theDevice,
                                   const VkFormat theSwapchainImagesFormat,
@@ -403,16 +432,6 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 	/*
 	 * We need to specify all the attachments that will be used inside
 	 * this renderpass.
-	 * For each attachment we specify its format, the number of samples,
-	 * what operations to do when reading and writing on the attachment,
-	 * the behaviour of the stencil buffer, and the initial and final
-	 * layout of the attachment image.
-	 *
-	 * A nice functionality of renderpasses is that we can specify
-	 * the initial layout of the attachment before it enters the render pass,
-	 * and the layout we expect to see after the render pass finishes.
-	 * This way the driver will insert the appropriate layout change operations for us,
-	 * with all the correct barriers in place!
 	 */
 	const VkAttachmentDescription attachmentDescription[2] = {
 		[0] = {
@@ -442,18 +461,7 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 
 	/*
 	 * A renderpass is composed by one or more subpasses.
-	 *
-	 * Subpasses represent a part of the overall renderpass rendering:
-	 * they read from a set of input attachments and write their results in
-	 * one or more color attachments, and optionally a depth and a stencil attachment.
-	 * They also take a list of attachments in the renderpass that will be preserved
-	 * throughout the execution of the subpass; with these informations, the driver can
-	 * schedule the execution of the subpasses' rendering operations in the best way possible
-	 * because it knows the full dependency graph between the subpasses.
-	 *
-	 * A renderpass must have at least one subpass.
 	 */
-
 	// We need to tell the subpass what color attachment and what depth attachment
 	// it must use: we do this with VkAttachmentReferences.
 	const VkAttachmentReference colorAttachmentReference = {
@@ -483,11 +491,6 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 
 	/*
 	 * Create the VkRenderPass object.
-	 *
-	 * The dependencyCount and pDependencies fields define a list
-	 * of additional dependencies between pairs of subpasses
-	 * in this renderpass; basically it's like an additional
-	 * pipeline barrier between subpasses.
 	 */
 	const VkRenderPassCreateInfo renderPassCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
@@ -511,16 +514,7 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 
 
 /**
- * Create the VkPipeline for this demo.
- *
- * Pipelines are "the things that do stuff": they are a path
- * inside the GPU that vertex and fragment data follow
- * and they define standardized processing stages that transform said data;
- * VkPipeline objects define how those stages are configured.
- *
- * For this demo, we define a single graphics pipeline, with a vertex shader
- * and a fragment shader; there is no input data other than a vertex buffer,
- * and the pipeline outputs to an RGBA color attachment and a depth buffer.
+ * Create the VkPipeline; it's the same as Demo 02 (Triangle).
  */
 bool createTriangleDemoPipeline(const VkDevice theDevice,
                                 const VkRenderPass theRenderPass,
@@ -543,12 +537,8 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 		return false;
 	}
 
-
 	/*
 	 * Specify the pipeline's stages.
-	 *
-	 * In this demo we have 2 stages: the vertex shader stage, and the fragment shader stage
-	 * (other optional stages are tessellation and geometry shaders).
 	 */
 	VkPipelineShaderStageCreateInfo shaderStageCreateInfo[2] = {
 		[0] = {    // Vertex shader
@@ -557,8 +547,8 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 			.flags  = 0,
 			.stage  = VK_SHADER_STAGE_VERTEX_BIT,
 			.module = vertexShaderModule,
-			.pName  = "main",               // Shader entry point name (i.e. the function that will be called when shader's execution starts)
-			.pSpecializationInfo = nullptr,	// This field allows to specify constant values for constants in SPIR-V modules, before compiling the pipeline.
+			.pName  = "main",
+			.pSpecializationInfo = nullptr,
 		},
 		[1] = {    // Fragment shader
 			.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -571,22 +561,15 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 		},
 	};
 
-
 	/*
 	 * Specify parameters for vertex input.
-	 *
 	 */
-	// A Vertex Input Binding describes a binding point on the pipeline where a vertex buffer can be connected.
 	VkVertexInputBindingDescription vertexInputBindingDescription = {
 		.binding = VERTEX_INPUT_BINDING,
 		.stride = sizeof(TriangleDemoVertex),
 		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
 	};
 
-	// Vertex Attribute Descriptions describe the format of the data expected on a buffer
-	// attached to a particular Vertex Input Binding.
-	// Here we have two Attribute Descriptions: a vector of 3 float elements for vertex position (x,y,z),
-	// and a vector of 3 float elements for vertex color (r,g,b).
 	VkVertexInputAttributeDescription vertexInputAttributeDescription[2] = {
 		[0] = {
 			.location = 0,
@@ -602,7 +585,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 		},
 	};
 
-	// This will go in the Pipeline Create Info struct.
 	VkPipelineVertexInputStateCreateInfo vertexInputStateCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
 		.pNext = nullptr,
@@ -616,11 +598,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 	/*
 	 * Specify parameters for input assembly.
-	 *
-	 * The Input Assembly stage is a fixed function stage in the pipeline
-	 * that collects all the processed vertices and sends them to the rasterizer.
-	 * We must tell it how to interpret those vertices: in this demo, our vertices
-	 * describe a sequence of indipendent triangles.
 	 */
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyStateCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
@@ -633,16 +610,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 	/*
 	 * Specify what parameters will be part of the dynamic state.
-	 *
-	 * Some of the pipeline's parameters are static and baked into the pipeline object
-	 * at the instant of creation, but others can be chosen to be changed at a later time;
-	 * those parameters are what constitute the "dynamic state" of the pipeline.
-	 *
-	 * You can choose what parameters to leave static and what to make dynamic;
-	 * refer to Vulkan's specification to know what parameters can be made dynamic.
-	 * Just be aware that dynamic states cannot be taken into consideration when creating
-	 * the pipeline object, so there are less possibilities for the driver to apply various
-	 * device-dependent optimizations.
 	 */
 	VkDynamicState dynamicStateEnables[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
 
@@ -657,9 +624,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 	/*
 	 * Specify the viewport state.
-	 *
-	 * We'll use dynamic viewport and scissor state, so we specify nullptr
-	 * for these values.
 	 */
 	VkPipelineViewportStateCreateInfo viewportStateCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -674,10 +638,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 	/*
 	 * Specifiy rasterization parameters.
-	 *
-	 * These parameters tell the rasterizer how to treat the polygons it receives,
-	 * for example what the fill mode is (fill the triangles or draw only the borders),
-	 * the culling mode (front or back face culling), etc.
 	 */
 	VkPipelineRasterizationStateCreateInfo rasterizationStateCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -698,14 +658,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 	/*
 	 * Specify blending parameters.
-	 *
-	 * In this demo we don't enable blending; this means the fragments generated will overwrite
-	 * whatever the framebuffer contains at that moment.
 	 */
-
-	// We need to create a VkPipelineColorBlendAttachmentState for each color attachment
-	// we have on the subpass of the renderpass where this pipeline will be used.
-	// (We have only one in this demo)
 	VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {
 		.blendEnable = VK_FALSE,   // Disable blending for this demo. All the other values in this struct are ignored except colorWriteMask.
 		.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
@@ -715,7 +668,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 		.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
 		.alphaBlendOp = VK_BLEND_OP_ADD,
 		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-		//    ^^^  Which components of the fragments to write out to memory (in this case, all of them).
 	};
 
 	VkPipelineColorBlendStateCreateInfo colorBlendStateCreateInfo = {
@@ -732,9 +684,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 	/*
 	 * Specify depth buffer and stencil buffer parameters.
-	 *
-	 * These parameters tell the GPU how to treat values in the depth and stencil buffers
-	 * and what to do with with fragments that pass/fail the depth/stencil tests.
 	 */
 	VkPipelineDepthStencilStateCreateInfo depthStencilStateCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
@@ -763,7 +712,6 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 	/*
 	 * Specify Multisample parameters.
-	 *
 	 */
 	VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo = {
 	    .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
@@ -779,8 +727,7 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 
 
 	/*
-	 * Finally, create the pipeline with all the information we defined before.
-	 *
+	 * Create the pipeline with all the information we defined before.
 	 */
 	VkGraphicsPipelineCreateInfo graphicsPipelineCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -800,8 +747,8 @@ bool createTriangleDemoPipeline(const VkDevice theDevice,
 		.layout = thePipelineLayout,
 		.renderPass = theRenderPass,
 		.subpass = 0,
-		.basePipelineHandle = VK_NULL_HANDLE, // This and the following parameter are used
-		.basePipelineIndex = -1,              //  to create derivative pipelines -- not used in this demo.
+		.basePipelineHandle = VK_NULL_HANDLE,
+		.basePipelineIndex = -1,
 	};
 
 	VkPipeline myPipeline;
@@ -852,7 +799,6 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer,
 		memoryBarriersVector.push_back(imageMemoryBarrier);
 	}
 
-
 	/*
 	 * We also prepare the depth buffer's image, transitioning it
 	 * to VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
@@ -873,7 +819,6 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer,
 
 		memoryBarriersVector.push_back(imageMemoryBarrier);
 	}
-
 
 	/*
 	 * Now we submit all the Pipeline Barriers to a command buffer
@@ -938,11 +883,6 @@ bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	result = vkBeginCommandBuffer(theCommandBuffer, &commandBufferBeginInfo);
 	assert(result == VK_SUCCESS);
 
-	// We don't need to add a pipeline barrier to transition the swapchain's image
-	// from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-	// because we already told the driver to do the layout change for us
-	// when we created the render pass. That's a very convenient feature!
-
 	/*
 	 * Record the state setup and drawing commands.
 	 */
@@ -1000,10 +940,6 @@ bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	// End the render pass commands.
 	vkCmdEndRenderPass(theCommandBuffer);
 
-	// Again, we don't need to add a pipeline barrier to transition the swapchain's image
-	// from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	// because we already told the driver to do it in the render pass.
-
 	/*
 	 * End recording of the command buffer
 	 */
@@ -1013,39 +949,42 @@ bool fillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 
 
 
+
+
 /**
  * Renders a single frame for this demo (i.e. we clear the screen).
  * Returns true on success and false on failure.
- *
- * For a more detailed description, refer to demo 01_clearscreen.
  */
 bool renderSingleFrame(const VkDevice theDevice,
                        const VkQueue theQueue,
                        const VkSwapchainKHR theSwapchain,
-                       const VkCommandBuffer thePresentCmdBuffer,
                        const std::vector<VkFramebuffer> & theFramebuffersVector,
                        const VkRenderPass theRenderPass,
                        const VkPipeline thePipeline,
                        const VkBuffer theVertexBuffer,
+                       PerFrameData & thePerFrameData,
                        const int width,
                        const int height
                        )
 {
 	VkResult result;
-	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
 
-	result = vkdemos::utils::createSemaphore(theDevice, imageAcquiredSemaphore);
-	assert(result == VK_SUCCESS);
-
-	result = vkdemos::utils::createSemaphore(theDevice, renderingCompletedSemaphore);
-	assert(result == VK_SUCCESS);
+	/*
+	 * Wait on the previous frame's fence so that we don't render frames too fast.
+	 */
+	if(thePerFrameData.fenceInitialized) {
+		vkWaitForFences(theDevice, 1, &thePerFrameData.presentFence, VK_TRUE, UINT64_MAX);
+		vkResetFences(theDevice, 1, &thePerFrameData.presentFence);
+	}
 
 
 	/*
 	 * Acquire the index of the next available swapchain image.
 	 */
 	uint32_t imageIndex = UINT32_MAX;
-	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, VK_NULL_HANDLE, &imageIndex);
+	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, thePerFrameData.imageAcquiredSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+	thePerFrameData.fenceInitialized = true;
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
 		std::cout << "!!! ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
@@ -1061,7 +1000,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 	/*
 	 * Fill the present command buffer with... the present commands.
 	 */
-	bool boolResult = fillRenderingCommandBuffer(thePresentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, theVertexBuffer, width, height);
+	bool boolResult = fillRenderingCommandBuffer(thePerFrameData.presentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, theVertexBuffer, width, height);
 	assert(boolResult);
 
 
@@ -1073,15 +1012,15 @@ bool renderSingleFrame(const VkDevice theDevice,
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.pNext = nullptr,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &imageAcquiredSemaphore,
+		.pWaitSemaphores = &thePerFrameData.imageAcquiredSemaphore,
 		.pWaitDstStageMask = &pipelineStageFlags,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &thePresentCmdBuffer,
+		.pCommandBuffers = &thePerFrameData.presentCmdBuffer,
 		.signalSemaphoreCount = 1,
-		.pSignalSemaphores = &renderingCompletedSemaphore
+		.pSignalSemaphores = &thePerFrameData.renderingCompletedSemaphore
 	};
 
-	result = vkQueueSubmit(theQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	result = vkQueueSubmit(theQueue, 1, &submitInfo, thePerFrameData.presentFence);
 	assert(result == VK_SUCCESS);
 
 
@@ -1092,7 +1031,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.pNext = nullptr,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &renderingCompletedSemaphore,
+		.pWaitSemaphores = &thePerFrameData.renderingCompletedSemaphore,
 		.swapchainCount = 1,
 		.pSwapchains = &theSwapchain,
 		.pImageIndices = &imageIndex,
@@ -1109,15 +1048,5 @@ bool renderSingleFrame(const VkDevice theDevice,
 		assert(result == VK_SUCCESS);
 
 
-	/*
-	 * Wait for the queue to complete working.
-	 */
-	vkQueueWaitIdle(theQueue);
-
-	/*
-	 * Cleanup
-	 */
-	vkDestroySemaphore(theDevice, imageAcquiredSemaphore, nullptr);
-	vkDestroySemaphore(theDevice, renderingCompletedSemaphore, nullptr);
 	return true;
 }

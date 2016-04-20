@@ -29,7 +29,7 @@
  */
 bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector);
 bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkImage theCurrentSwapchainImage, const float clearColorR, const float clearColorG, const float clearColorB);
-bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const VkCommandBuffer thePresentCmdBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const VkFence thePresentFence, const float clearColorR, const float clearColorG, const float clearColorB);
+bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const VkCommandBuffer thePresentCmdBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const float clearColorR, const float clearColorG, const float clearColorB);
 
 
 /**
@@ -102,7 +102,7 @@ int main(int argc, char* argv[])
 	// Create a VkSwapchainKHR
 	VkSwapchainKHR mySwapchain;
 	VkFormat mySurfaceFormat;
-	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
+	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, 1, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
 	assert(boolResult);
 
 	// Create the swapchain images and related views.
@@ -128,17 +128,6 @@ int main(int argc, char* argv[])
 	VkCommandBuffer myCmdBufferPresent;
 	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
 	assert(boolResult);
-
-	// We create a Fence object: this object will be used to synchronize
-	// the CPU thread with the GPU presentation rate, so that
-	// we don't do useless work on the cpu if the presentation rate
-	// is slower that the rendering rate.
-	// Note: in a "real" application, you would have multiple Fences
-	// (for example 2 or 3), so that the CPU doesn't wait on every frame
-	// but there's a bit of buffering going on.
-	VkFence myPresentFence;
-	result = vkdemos::utils::createFence(myDevice, myPresentFence);
-	assert(result == VK_SUCCESS);
 
 
 	/*
@@ -233,7 +222,7 @@ int main(int argc, char* argv[])
 
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, myPresentFence, colR, colG, colB);
+			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, colR, colG, colB);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -273,8 +262,6 @@ int main(int argc, char* argv[])
 	// We wait for pending operations to complete before starting to destroy stuff.
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
-
-	vkDestroyFence(myDevice, myPresentFence, nullptr);
 
 	// You don't need to call vkFreeCommandBuffers for all command buffers; all command buffers
 	// allocated from a command pool are released when the command pool is destroyed.
@@ -381,8 +368,6 @@ bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, con
 
 /**
  * Fill the specified command buffer with the present commands for this demo.
- *
- * The commands consist in
  */
 bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkImage theCurrentSwapchainImage, const float clearColorR, const float clearColorG, const float clearColorB)
 {
@@ -476,7 +461,6 @@ bool renderSingleFrame(const VkDevice theDevice,
                        const VkSwapchainKHR theSwapchain,
                        const VkCommandBuffer thePresentCmdBuffer,
                        const std::vector<VkImage> & theSwapchainImagesVector,
-                       const VkFence thePresentFence,
                        const float clearColorR, const float clearColorG, const float clearColorB)
 {
 	VkResult result;
@@ -495,19 +479,11 @@ bool renderSingleFrame(const VkDevice theDevice,
 	result = vkdemos::utils::createSemaphore(theDevice, renderingCompletedSemaphore);
 	assert(result == VK_SUCCESS);
 
-
-	/*
-	 * Wait on the previous frame's fence so that we don't render frames too fast.
-	 */
-	vkWaitForFences(theDevice, 1, &thePresentFence, VK_TRUE, UINT64_MAX);
-	vkResetFences(theDevice, 1, &thePresentFence);
-
-
 	/*
 	 * Acquire the index of the next available swapchain image.
 	 */
 	uint32_t imageIndex = UINT32_MAX;
-	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, thePresentFence, &imageIndex);
+	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, VK_NULL_HANDLE, &imageIndex);
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
 		// The swapchain is out of date (e.g. the window was resized) and must be recreated.
@@ -581,23 +557,7 @@ bool renderSingleFrame(const VkDevice theDevice,
 		assert(result == VK_SUCCESS);
 
 	/*
-	 * The end!
-	 * ... or not?
-	 *
-	 * Unfortunately, on current experimental Nvidia drivers (as of 2016-04-16),
-	 * vkAcquireNextImageKHR is broken in that it never waits for a new image to be available;
-	 * this means that we can't use it to throttle our rendering rate.
-	 * Moreover, at least on Linux/X11, this causes the system to hang up unresponsive;
-	 * for more informations, check [1] and [2].
-	 *
-	 * To slow down rendering, we can wait for the queue to finish all of its work,
-	 * for example calling vkQueueWaitIdle(theQueue); unfortunately, on Nvidia drivers,
-	 * vkQueueWaitIdle is implemented as a busy cycle, so a single CPU core will constantly
-	 * be at 100% usage. Not that is a bug or a problem (you tipically won't be calling
-	 * vkQueueWaitIdle every frame), but it's a bit annoying.
-	 *
-	 * [1] https://vulkan.lunarg.com/app/issues/56ca3a477ef24d0001787448
-	 * [2] https://www.reddit.com/r/vulkan/comments/48oe7b/problems_with_fences_vkacquirenextimagekhr_and/?ref=share&ref_source=link
+	 * Wait for the operations on the queue to end before cleaning up resources.
 	 */
 	vkQueueWaitIdle(theQueue);
 
