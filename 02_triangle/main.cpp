@@ -94,15 +94,7 @@ int main(int argc, char* argv[])
 	 * in directory "00_commons".
 	 */
 	std::vector<const char *> layersNamesToEnable;
-	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_threading");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
-	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
-	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
-	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_standard_validation");
 
 	std::vector<const char *> extensionsNamesToEnable;
 	extensionsNamesToEnable.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
@@ -115,7 +107,7 @@ int main(int argc, char* argv[])
 
 	VkDebugReportCallbackEXT myDebugReportCallback;
 	vkdemos::createDebugReportCallback(myInstance,
-		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT /*| VK_DEBUG_REPORT_INFORMATION_BIT_EXT*/ | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
+		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
 		vkdemos::debugCallback,
 		myDebugReportCallback
 	);
@@ -421,7 +413,7 @@ bool createTriangleDemoRenderPass(const VkDevice theDevice,
 	 * the behaviour of the stencil buffer, and the initial and final
 	 * layout of the attachment image.
 	 *
-	 * A nice functionality of renderpasses is that ee can specify
+	 * A nice functionality of renderpasses is that we can specify
 	 * the initial layout of the attachment before it enters the render pass,
 	 * and the layout we expect to see after the render pass finishes.
 	 * This way the driver will insert the appropriate layout change operations for us,

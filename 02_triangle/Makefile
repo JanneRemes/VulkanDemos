@@ -13,7 +13,7 @@ all: $(OUTFILE) shaders
 	@true
 
 clean:
-	rm $(OUTFILE)
+	rm $(OUTFILE) *.spirv
 
 shaders: vertex.spirv fragment.spirv
 	@true
@@ -26,3 +26,4 @@ fragment.spirv: triangle.frag
 
 $(OUTFILE): $(SOURCES)
 	$(CXX) $(CPPFLAGS) $(SOURCES) -o $(OUTFILE) $(LIBS)
+

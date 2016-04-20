@@ -60,15 +60,7 @@ int main(int argc, char* argv[])
 
 	// Vector of the layer names we want to enable on the Instance
 	std::vector<const char *> layersNamesToEnable;
-	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_threading");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_param_checker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_device_limits");
-	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_object_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_image");
-	//layersNamesToEnable.push_back("VK_LAYER_LUNARG_mem_tracker");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_draw_state");
-	layersNamesToEnable.push_back("VK_LAYER_LUNARG_swapchain");
-	layersNamesToEnable.push_back("VK_LAYER_GOOGLE_unique_objects");
+	layersNamesToEnable.push_back("VK_LAYER_LUNARG_standard_validation");
 
 	// Vector of the extension names we want to enable on the Instance
 	std::vector<const char *> extensionsNamesToEnable;
@@ -84,7 +76,7 @@ int main(int argc, char* argv[])
 	// Initialize the debug callback
 	VkDebugReportCallbackEXT myDebugReportCallback;
 	vkdemos::createDebugReportCallback(myInstance,
-		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
+		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
 		vkdemos::debugCallback,
 		myDebugReportCallback
 	);
