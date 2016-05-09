@@ -13,6 +13,9 @@
 #include "../00_commons/06_swapchain.h"
 #include "../00_commons/07_commandPoolAndBuffer.h"
 
+#include "demo01fillinitializationcommandbuffer.h"
+#include "demo01rendersingleframe.h"
+
 // Includes for this file
 #include <iostream>
 #include <iomanip>
@@ -24,17 +27,7 @@
 #include <climits>
 
 
-/*
- * Prototypes for functions defined in this file.
- */
-bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector);
-bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkImage theCurrentSwapchainImage, const float clearColorR, const float clearColorG, const float clearColorB);
-bool renderSingleFrame(const VkDevice theDevice, const VkQueue theQueue, const VkSwapchainKHR theSwapchain, const VkCommandBuffer thePresentCmdBuffer, const std::vector<VkImage> & theSwapchainImagesVector, const float clearColorR, const float clearColorG, const float clearColorB);
 
-
-/**
- * Good ol' main function.
- */
 int main(int argc, char* argv[])
 {
 	static int windowWidth = 800;
@@ -138,7 +131,7 @@ int main(int argc, char* argv[])
 	 */
 
 	// We fill the initialization command buffer with... the initialization commands.
-	boolResult = fillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector);
+	boolResult = demo01FillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector);
 	assert(boolResult);
 
 	// We now submit the command buffer to the queue we created before, and we wait
@@ -222,7 +215,7 @@ int main(int argc, char* argv[])
 
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !renderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, colR, colG, colB);
+			quit = !demo01RenderSingleFrame(myDevice, myQueue, mySwapchain, myCmdBufferPresent, mySwapchainImagesVector, colR, colG, colB);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -289,280 +282,3 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
-
-
-/**
- * Fill the specified command buffer with the initialization commands for this demo.
- *
- * The commands consist in just a bunch of CmdPipelineBarrier that transition the
- * swapchain images from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR.
- */
-bool fillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer, const std::vector<VkImage> & theSwapchainImagesVector)
-{
-	VkResult result;
-	std::vector<VkImageMemoryBarrier> memoryBarriersVector;
-
-	/*
-	 * "The pipeline barrier specifies an execution dependency such that all work performed
-	 * by the set of pipeline stages included in srcStageMask of the first set of commands
-	 * completes before any work performed by the set of pipeline stages
-	 * included in dstStageMask of the second set of commands begins." [Section 6.5]
-	 *
-	 * Pipeline barriers are also the place were we can change layouts of our VkImages;
-	 * here we add a Pipeline Barrier for each swapchain image, to transition them
-	 * from VK_IMAGE_LAYOUT_UNDEFINED to the correct layout.
-	*/
-	for(const auto & image : theSwapchainImagesVector)
-	{
-		VkImageMemoryBarrier imageMemoryBarrier = {
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.pNext = nullptr,
-			.srcAccessMask = 0,
-			.dstAccessMask = 0,
-			.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-			.image = image,
-		};
-
-		memoryBarriersVector.push_back(imageMemoryBarrier);
-	}
-
-
-	/*
-	 * Now we submit all the Pipeline Barriers to a command buffer
-	 * through the vkCmdPipelineBarrier command.
-	 */
-	VkCommandBufferBeginInfo commandBufferBeginInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.pNext = nullptr,
-		.flags = (VkCommandBufferUsageFlags)0,
-		.pInheritanceInfo = nullptr,
-	};
-
-	// Begin command buffer recording.
-	result = vkBeginCommandBuffer(theCommandBuffer, &commandBufferBeginInfo);
-	assert(result == VK_SUCCESS);
-
-	// Submit the Pipeline Barriers
-	vkCmdPipelineBarrier(theCommandBuffer,
-		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,     // srcStageMask
-		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,     // dstStageMask
-		0,                                     // dependencyFlags
-		0,                                     // memoryBarrierCount
-		nullptr,                               // pMemoryBarriers
-		0,                                     // bufferMemoryBarrierCount
-		nullptr,                               // pBufferMemoryBarriers
-		(uint32_t)memoryBarriersVector.size(), // imageMemoryBarrierCount
-		memoryBarriersVector.data()            // pImageMemoryBarriers
-	);
-
-	// End command buffer recording.
-	result = vkEndCommandBuffer(theCommandBuffer);
-	return true;
-}
-
-
-
-/**
- * Fill the specified command buffer with the present commands for this demo.
- */
-bool fillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, const VkImage theCurrentSwapchainImage, const float clearColorR, const float clearColorG, const float clearColorB)
-{
-	VkResult result;
-
-	/*
-	 * Begin recording of the command buffer
-	 */
-	VkCommandBufferBeginInfo commandBufferBeginInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.pNext = nullptr,
-		.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
-		.pInheritanceInfo = nullptr,
-	};
-
-	result = vkBeginCommandBuffer(theCommandBuffer, &commandBufferBeginInfo);
-	assert(result == VK_SUCCESS);
-
-
-	// Pre-fill a VkImageMemoryBarrier structure that we'll use later
-	VkImageMemoryBarrier imageMemoryBarrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.pNext = nullptr,
-		.srcAccessMask = 0,
-		.dstAccessMask = 0,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-		.image = theCurrentSwapchainImage,
-	};
-
-	/*
-	 * Transition the swapchain image from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	 * to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-	 */
-	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	imageMemoryBarrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-	vkCmdPipelineBarrier(theCommandBuffer,
-		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &imageMemoryBarrier
-	);
-
-	/*
-	 * Add the CmdClearColorImage that will fill the swapchain image with the specified color.
-	 * For this command to work, the destination image must be in either VK_IMAGE_LAYOUT_GENERAL
-	 * or VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL layout.
-	 */
-	VkClearColorValue clearColorValue;
-	VkImageSubresourceRange imageSubresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-	clearColorValue.float32[0] = clearColorR;	// FIXME it assumes the image is a floating point one.
-	clearColorValue.float32[1] = clearColorG;
-	clearColorValue.float32[2] = clearColorB;
-	clearColorValue.float32[3] = 1.0f;	// alpha
-	vkCmdClearColorImage(theCommandBuffer, theCurrentSwapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColorValue, 1, &imageSubresourceRange);
-
-
-	/*
-	 * Transition the swapchain image from VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-	 * to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	 */
-	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-	imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-
-	vkCmdPipelineBarrier(theCommandBuffer,
-		VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &imageMemoryBarrier
-	);
-
-
-	/*
-	 * End recording of the command buffer
-	 */
-	result = vkEndCommandBuffer(theCommandBuffer);
-	return true;
-}
-
-
-
-/**
- * Renders a single frame for this demo (i.e. we clear the screen).
- * Returns true on success and false on failure.
- */
-bool renderSingleFrame(const VkDevice theDevice,
-                       const VkQueue theQueue,
-                       const VkSwapchainKHR theSwapchain,
-                       const VkCommandBuffer thePresentCmdBuffer,
-                       const std::vector<VkImage> & theSwapchainImagesVector,
-                       const float clearColorR, const float clearColorG, const float clearColorB)
-{
-	VkResult result;
-	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
-
-	// Create a semaphore that will be signalled when a swapchain image is ready to use,
-	// and that will be waited upon by the queue before starting all the rendering/present commands.
-	//
-	// Note: in a "real" application, you would create the semaphore only once at program initialization,
-	// and not every frame (for performance reasons).
-	result = vkdemos::utils::createSemaphore(theDevice, imageAcquiredSemaphore);
-	assert(result == VK_SUCCESS);
-
-	// Create another semaphore that will be signalled when the queue has terminated the rendering commands,
-	// and that will be waited upon by the actual present operation.
-	result = vkdemos::utils::createSemaphore(theDevice, renderingCompletedSemaphore);
-	assert(result == VK_SUCCESS);
-
-	/*
-	 * Acquire the index of the next available swapchain image.
-	 */
-	uint32_t imageIndex = UINT32_MAX;
-	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, VK_NULL_HANDLE, &imageIndex);
-
-	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
-		// The swapchain is out of date (e.g. the window was resized) and must be recreated.
-		// In this demo we just "gracefully crash".
-		std::cout << "!!! ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
-		// TODO tear down and recreate the swapchain and all its images from scratch.
-		return false;
-	}
-	else if(result == VK_SUBOPTIMAL_KHR) {
-		// The swapchain is not as optimal as it could be, but the platform's
-		// presentation engine will still present the image correctly.
-		std::cout << "~~~ Swapchain is suboptimal." << std::endl;
-	}
-	else
-		assert(result == VK_SUCCESS);
-
-
-	/*
-	 * Fill the present command buffer with... the present commands.
-	 */
-	bool boolResult = fillPresentCommandBuffer(thePresentCmdBuffer, theSwapchainImagesVector[imageIndex], clearColorR, clearColorG, clearColorB);
-	assert(boolResult);
-
-
-	/*
-	 * Submit the present command buffer to the queue (this is the fun part!)
-	 *
-	 * In the VkSubmitInfo we specify imageAcquiredSemaphore as a wait semaphore;
-	 * this way, the submitted command buffers won't start executing before the
-	 * swapchain image is ready.
-	 */
-	VkPipelineStageFlags pipelineStageFlags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	VkSubmitInfo submitInfo = {
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.pNext = nullptr,
-		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &imageAcquiredSemaphore,
-		.pWaitDstStageMask = &pipelineStageFlags,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &thePresentCmdBuffer,
-		.signalSemaphoreCount = 1,
-		.pSignalSemaphores = &renderingCompletedSemaphore
-	};
-
-	result = vkQueueSubmit(theQueue, 1, &submitInfo, VK_NULL_HANDLE);
-	assert(result == VK_SUCCESS);
-
-
-	/*
-	 * Present the rendered image,
-	 * so that it will be queued for display.
-	 */
-	VkPresentInfoKHR presentInfo = {
-		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-		.pNext = nullptr,
-		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &renderingCompletedSemaphore,
-		.swapchainCount = 1,
-		.pSwapchains = &theSwapchain,
-		.pImageIndices = &imageIndex,
-		.pResults = nullptr,
-	};
-
-	result = vkQueuePresentKHR(theQueue, &presentInfo);
-
-	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
-		std::cout << "!!! ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
-		return false;
-	}
-	else if(result != VK_SUBOPTIMAL_KHR)
-		assert(result == VK_SUCCESS);
-
-	/*
-	 * Wait for the operations on the queue to end before cleaning up resources.
-	 */
-	vkQueueWaitIdle(theQueue);
-
-	// Cleanup
-	vkDestroySemaphore(theDevice, imageAcquiredSemaphore, nullptr);
-	vkDestroySemaphore(theDevice, renderingCompletedSemaphore, nullptr);
-	return true;
-}
