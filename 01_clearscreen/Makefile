@@ -6,7 +6,7 @@ CXX=clang++
 CPPFLAGS=$(shell sdl2-config --cflags) -O2 -std=c++14 -Wall
 LIBS=$(shell sdl2-config --libs) -lvulkan -lX11-xcb
 
-.PHONY: all clean
+.PHONY: all clean force
 
 
 all: $(OUTFILE)
@@ -15,5 +15,8 @@ all: $(OUTFILE)
 clean:
 	rm $(OUTFILE)
 
-$(OUTFILE): $(SOURCES)
+force:
+	@true
+
+$(OUTFILE): force
 	$(CXX) $(CPPFLAGS) $(SOURCES) -o $(OUTFILE) $(LIBS)

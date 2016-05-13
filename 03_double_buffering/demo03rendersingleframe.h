@@ -20,7 +20,7 @@ struct PerFrameData
 
 
 /**
- * Renders a single frame for this demo (i.e. we clear the screen).
+ * Renders a single frame.
  * Returns true on success and false on failure.
  */
 bool demo03RenderSingleFrame(const VkDevice theDevice,

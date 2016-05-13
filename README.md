@@ -27,3 +27,7 @@ Demo list:
 - **03 - Double Buffering**
 
   This demo shows how to enhance Demo 02 to do double buffering, so that the CPU can generate the next frame while the GPU renders/presents the previous one.
+
+- **04 - Push Constants**
+
+  This demo adds Push Constants to Demo 03, to display a simple animation.

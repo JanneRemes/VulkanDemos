@@ -1,47 +1,61 @@
-#ifndef DEMO02RENDERSINGLEFRAME_H
-#define DEMO02RENDERSINGLEFRAME_H
+#ifndef DEMO04RENDERSINGLEFRAME_H
+#define DEMO04RENDERSINGLEFRAME_H
 
-#include "../00_commons/00_utils.h"
-#include "demo02fillrenderingcommandbuffer.h"
+#include "demo04fillrenderingcommandbuffer.h"
 
 #include <vulkan/vulkan.h>
+#include <vector>
 #include <iostream>
+#include <cassert>
+
+
+struct PerFrameData
+{
+	VkCommandBuffer presentCmdBuffer;
+	VkSemaphore imageAcquiredSemaphore;
+	VkSemaphore renderingCompletedSemaphore;
+	VkFence presentFence;
+	bool fenceInitialized;
+};
 
 
 /**
- * Renders a single frame for this demo.
+ * Renders a single frame.
  * Returns true on success and false on failure.
- *
- * For a more detailed description, refer to demo 01_clearscreen.
  */
-bool demo02RenderSingleFrame(const VkDevice theDevice,
+bool demo04RenderSingleFrame(const VkDevice theDevice,
                              const VkQueue theQueue,
                              const VkSwapchainKHR theSwapchain,
-                             const VkCommandBuffer thePresentCmdBuffer,
                              const std::vector<VkFramebuffer> & theFramebuffersVector,
                              const VkRenderPass theRenderPass,
                              const VkPipeline thePipeline,
+                             const VkPipelineLayout thePipelineLayout,
                              const VkBuffer theVertexBuffer,
                              const uint32_t vertexInputBinding,
+                             PerFrameData & thePerFrameData,
                              const int width,
-                             const int height
+                             const int height,
+                             const float animationTime
                              )
 {
 	VkResult result;
-	VkSemaphore imageAcquiredSemaphore, renderingCompletedSemaphore;
 
-	result = vkdemos::utils::createSemaphore(theDevice, imageAcquiredSemaphore);
-	assert(result == VK_SUCCESS);
-
-	result = vkdemos::utils::createSemaphore(theDevice, renderingCompletedSemaphore);
-	assert(result == VK_SUCCESS);
+	/*
+	 * Wait on the previous frame's fence so that we don't render frames too fast.
+	 */
+	if(thePerFrameData.fenceInitialized) {
+		vkWaitForFences(theDevice, 1, &thePerFrameData.presentFence, VK_TRUE, UINT64_MAX);
+		vkResetFences(theDevice, 1, &thePerFrameData.presentFence);
+	}
 
 
 	/*
 	 * Acquire the index of the next available swapchain image.
 	 */
 	uint32_t imageIndex = UINT32_MAX;
-	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, imageAcquiredSemaphore, VK_NULL_HANDLE, &imageIndex);
+	result = vkAcquireNextImageKHR(theDevice, theSwapchain, UINT64_MAX, thePerFrameData.imageAcquiredSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+	thePerFrameData.fenceInitialized = true;
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
 		std::cout << "!!! ERROR: Demo doesn't yet support out-of-date swapchains." << std::endl;
@@ -57,7 +71,7 @@ bool demo02RenderSingleFrame(const VkDevice theDevice,
 	/*
 	 * Fill the present command buffer with... the present commands.
 	 */
-	bool boolResult = demo02FillRenderingCommandBuffer(thePresentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, theVertexBuffer, vertexInputBinding, width, height);
+	bool boolResult = demo04FillRenderingCommandBuffer(thePerFrameData.presentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, thePipelineLayout, theVertexBuffer, vertexInputBinding, width, height, animationTime);
 	assert(boolResult);
 
 
@@ -69,15 +83,15 @@ bool demo02RenderSingleFrame(const VkDevice theDevice,
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.pNext = nullptr,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &imageAcquiredSemaphore,
+		.pWaitSemaphores = &thePerFrameData.imageAcquiredSemaphore,
 		.pWaitDstStageMask = &pipelineStageFlags,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &thePresentCmdBuffer,
+		.pCommandBuffers = &thePerFrameData.presentCmdBuffer,
 		.signalSemaphoreCount = 1,
-		.pSignalSemaphores = &renderingCompletedSemaphore
+		.pSignalSemaphores = &thePerFrameData.renderingCompletedSemaphore
 	};
 
-	result = vkQueueSubmit(theQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	result = vkQueueSubmit(theQueue, 1, &submitInfo, thePerFrameData.presentFence);
 	assert(result == VK_SUCCESS);
 
 
@@ -88,7 +102,7 @@ bool demo02RenderSingleFrame(const VkDevice theDevice,
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.pNext = nullptr,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &renderingCompletedSemaphore,
+		.pWaitSemaphores = &thePerFrameData.renderingCompletedSemaphore,
 		.swapchainCount = 1,
 		.pSwapchains = &theSwapchain,
 		.pImageIndices = &imageIndex,
@@ -105,16 +119,6 @@ bool demo02RenderSingleFrame(const VkDevice theDevice,
 		assert(result == VK_SUCCESS);
 
 
-	/*
-	 * Wait for the queue to complete working.
-	 */
-	vkQueueWaitIdle(theQueue);
-
-	/*
-	 * Cleanup
-	 */
-	vkDestroySemaphore(theDevice, imageAcquiredSemaphore, nullptr);
-	vkDestroySemaphore(theDevice, renderingCompletedSemaphore, nullptr);
 	return true;
 }
 
