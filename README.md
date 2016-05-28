@@ -31,3 +31,7 @@ Demo list:
 - **04 - Push Constants**
 
   This demo adds Push Constants to Demo 03, to display a simple animation.
+
+- **05 - Textures**
+
+  This demo shows how to upload textures to the GPU and use them in rendering

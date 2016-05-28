@@ -4,3 +4,4 @@
 *.includes
 *.config
 *.spirv
+*/test
