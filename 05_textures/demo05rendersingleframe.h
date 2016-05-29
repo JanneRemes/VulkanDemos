@@ -32,6 +32,7 @@ bool demo05RenderSingleFrame(const VkDevice theDevice,
                              const VkPipelineLayout thePipelineLayout,
                              const VkBuffer theVertexBuffer,
                              const uint32_t vertexInputBinding,
+                             const VkDescriptorSet theDescriptorSet,
                              PerFrameData & thePerFrameData,
                              const int width,
                              const int height,
@@ -71,7 +72,7 @@ bool demo05RenderSingleFrame(const VkDevice theDevice,
 	/*
 	 * Fill the present command buffer with... the present commands.
 	 */
-	bool boolResult = demo05FillRenderingCommandBuffer(thePerFrameData.presentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, thePipelineLayout, theVertexBuffer, vertexInputBinding, width, height, animationTime);
+	bool boolResult = demo05FillRenderingCommandBuffer(thePerFrameData.presentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, thePipelineLayout, theVertexBuffer, vertexInputBinding, theDescriptorSet, width, height, animationTime);
 	assert(boolResult);
 
 

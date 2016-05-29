@@ -12,9 +12,10 @@ bool demo05FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
                                       const VkFramebuffer theCurrentFramebuffer,
                                       const VkRenderPass theRenderPass,
                                       const VkPipeline thePipeline,
-                                       const VkPipelineLayout thePipelineLayout,
+                                      const VkPipelineLayout thePipelineLayout,
                                       const VkBuffer theVertexBuffer,
                                       const uint32_t vertexInputBinding,
+                                      const VkDescriptorSet theDescriptorSet,
                                       const int width,
                                       const int height,
                                       const float animationTime
@@ -86,11 +87,21 @@ bool demo05FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	VkDeviceSize buffersOffsets = 0;
 	vkCmdBindVertexBuffers(theCommandBuffer, vertexInputBinding, 1, &theVertexBuffer, &buffersOffsets);
 
-
 	/*
-	 * Send the Push Constants.
-	 *
+	 * Bind the descriptor set.
 	 */
+	vkCmdBindDescriptorSets(
+		theCommandBuffer,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		thePipelineLayout,
+	    0,                 // firstSet
+		1,                 // descriptorSetCount
+		&theDescriptorSet, // pDescriptorSets
+		0,                 // dynamicOffsetCount
+		nullptr            // pDynamicOffsets
+	);
+
+	// Send the Push Constants.
 	vkCmdPushConstants(
 		theCommandBuffer,
 		thePipelineLayout,

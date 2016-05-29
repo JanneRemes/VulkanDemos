@@ -59,3 +59,6 @@ File and function list:
 
 	- `createAndAllocateBuffer`: Creates a VkBuffer and allocates memory for it.
 
+- 10_submitimagebarrier.h
+
+	- `submitImageBarrier`: Appends a CmdPipelineBarrier with an Image Barrier operation to a command buffer.

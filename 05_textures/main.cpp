@@ -14,6 +14,7 @@
 #include "../00_commons/07_commandPoolAndBuffer.h"
 #include "../00_commons/08_createAndAllocateImage.h"
 #include "../00_commons/09_createAndAllocateBuffer.h"
+#include "../00_commons/10_submitimagebarrier.h"
 
 #include "demo05rendersingleframe.h"
 
@@ -48,10 +49,17 @@ static constexpr int VERTEX_INPUT_BINDING = 0;
 static constexpr int NUM_DEMO_VERTICES = 3;
 static const TriangleDemoVertex vertices[NUM_DEMO_VERTICES] =
 {
-	//      position             color
-	{  0.433f, 0.25f,  0.0f,  0.1f, 0.8f, 0.1f },
-	{ -0.433f, 0.25f,  0.0f,  0.8f, 0.1f, 0.1f },
-	{  0.0f  , -0.5f,  0.0f,  0.1f, 0.1f, 0.8f },
+	//      position       |      color
+	/*
+	{  0.433f, 0.25f, 0.0f,  0.1f, 0.8f, 0.1f },
+	{ -0.433f, 0.25f, 0.0f,  0.8f, 0.1f, 0.1f },
+	{  0.0f  , -0.5f, 0.0f,  0.1f, 0.1f, 0.8f },*/
+    /*{  0.433f, 0.25f, 0.0f,  0.0f, 0.0f, 0.0f },
+	{ -0.433f, 0.25f, 0.0f,  0.0f, 1.0f, 0.0f },
+	{  0.0f  , -0.5f, 0.0f,  1.0f, 1.0f, 0.0f },*/
+    {  0.5f, 0.25f, 0.0f,  1.0f, 1.0f, 0.0f },
+	{ -0.5f, 0.25f, 0.0f,  0.0f, 1.0f, 0.0f },
+	{ -0.5f, -0.5f, 0.0f,  0.0f, 0.0f, 0.0f },
 };
 
 
@@ -140,18 +148,20 @@ int main(int argc, char* argv[])
 	VkImage myDepthImage;
 	VkImageView myDepthImageView;
 	VkDeviceMemory myDepthMemory;
-	boolResult = vkdemos::createAndAllocateImage(myDevice,
-	                                    myMemoryProperties,
-	                                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-	                                    0,
-	                                    myDepthBufferFormat,
-	                                    windowWidth,
-	                                    windowHeight,
-	                                    myDepthImage,
-	                                    myDepthMemory,
-	                                    &myDepthImageView,
-	                                    VK_IMAGE_ASPECT_DEPTH_BIT
-	                                    );
+
+	boolResult = vkdemos::createAndAllocateImage(
+	                 myDevice,
+	                 myMemoryProperties,
+	                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+	                 0,
+	                 myDepthBufferFormat,
+	                 windowWidth,
+	                 windowHeight,
+	                 myDepthImage,
+	                 myDepthMemory,
+	                 &myDepthImageView,
+	                 VK_IMAGE_ASPECT_DEPTH_BIT
+	             );
 	assert(boolResult);
 
 	// Create the renderpass.
@@ -174,14 +184,16 @@ int main(int argc, char* argv[])
 	const size_t vertexBufferSize = sizeof(TriangleDemoVertex)*NUM_DEMO_VERTICES;
 	VkBuffer myVertexBuffer;
 	VkDeviceMemory myVertexBufferMemory;
-	boolResult = vkdemos::createAndAllocateBuffer(myDevice,
-	                                     myMemoryProperties,
-	                                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-	                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-	                                     vertexBufferSize,
-	                                     myVertexBuffer,
-	                                     myVertexBufferMemory
-	                                     );
+
+	boolResult = vkdemos::createAndAllocateBuffer(
+	                 myDevice,
+	                 myMemoryProperties,
+	                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+	                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+	                 vertexBufferSize,
+	                 myVertexBuffer,
+	                 myVertexBufferMemory
+	             );
 	assert(boolResult);
 
 	// Map vertex buffer and insert data
@@ -196,15 +208,288 @@ int main(int argc, char* argv[])
 	}
 
 
+
 	/*
-	 * Create the pipeline.
 	 *
-	 * We specify a single Push Constant Range at offset 0 of length 4 bytes,
-	 * which we'll use to pass a single 32 bit float value to the shaders.
+	 * Create the texture.
 	 *
-	 * Drivers are required to allow at least 128 bytes of push constants;
-	 * if your push data is bigger than this, you should check that the
-	 * physical device supports the bigger size with vkGetPhysicalDeviceProperties.
+	 */
+	VkBuffer myStagingBuffer;
+	VkDeviceMemory myStagingBufferMemory;
+	VkImage myTextureImage;
+	VkImageView myTextureImageView;
+	VkDeviceMemory myTextureImageMemory;
+
+	{
+		struct FakePixel{ uint8_t r,g,b,a; };
+		FakePixel textureData[256][256];
+
+		for(int y = 0; y < 256; y++)
+			for(int x = 0; x < 256; x++)
+				textureData[y][x] = {(uint8_t)((((x&8)==0)^((y&8)==0))*255), 40, 40, 255};
+
+		/*
+		 * Allocate memory for staging buffer, map it, and fill it with our texture's data.
+		 */
+		boolResult = vkdemos::createAndAllocateBuffer(
+		                 myDevice,
+		                 myMemoryProperties,
+		                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,    // Use this buffer as a source for transfers
+		                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // It must be host-visible since we'll map it and copy data to it.
+		                 256*256*sizeof(FakePixel),
+		                 myStagingBuffer,
+		                 myStagingBufferMemory
+		             );
+		assert(boolResult);
+
+		// Map the buffer and fill it with data.
+		void *mappedBuffer;
+		result = vkMapMemory(myDevice, myStagingBufferMemory, 0, VK_WHOLE_SIZE, 0, &mappedBuffer);
+		assert(result == VK_SUCCESS);
+
+		memcpy(mappedBuffer, textureData, 256*256*sizeof(FakePixel));
+
+		vkUnmapMemory(myDevice, myStagingBufferMemory);
+
+
+
+		/*
+		 * Allocate memory for our texture's Image
+		 */
+		boolResult = vkdemos::createAndAllocateImage(
+		                 myDevice,
+		                 myMemoryProperties,
+		                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,   // The image will be used as a sampling source and a transfer destination
+		                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,    // The Image will reside in device-local memory.
+		                 VK_FORMAT_R8G8B8A8_UNORM,
+		                 256,  // width
+		                 256,  // height
+		                 myTextureImage,
+		                 myTextureImageMemory,
+		                 &myTextureImageView,
+		                 VK_IMAGE_ASPECT_COLOR_BIT
+		             );
+		assert(boolResult);
+
+
+		/*
+		 * Submit a copy command to the GPU to copy data from the staging buffer to the GPU's memory,
+		 * with the appropriate format conversion.
+		 */
+		VkCommandBuffer textureCopyCmdBuffer;
+		boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, textureCopyCmdBuffer);
+		assert(boolResult);
+
+		// Begin command buffer recording.
+		VkCommandBufferBeginInfo commandBufferBeginInfo = {
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.pNext = nullptr,
+			.flags = (VkCommandBufferUsageFlags)0,
+			.pInheritanceInfo = nullptr,
+		};
+
+		result = vkBeginCommandBuffer(textureCopyCmdBuffer, &commandBufferBeginInfo);
+		assert(result == VK_SUCCESS);
+
+		// Transition the Image to an optimal layout for use as a copy command's destination.
+		vkdemos::submitImageBarrier(
+			textureCopyCmdBuffer,
+			myTextureImage,
+			0,
+			VK_ACCESS_TRANSFER_WRITE_BIT,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+		);
+
+		// Copy mip levels from staging buffer
+		VkBufferImageCopy bufferImageCopy = {
+			.bufferOffset = 0,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
+			.imageSubresource = {
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.mipLevel = 0,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+		    },
+		    .imageOffset = {0, 0, 0},
+		    .imageExtent = {.width = 256, .height = 256, .depth = 0},
+		};
+
+		vkCmdCopyBufferToImage(
+			textureCopyCmdBuffer,
+			myStagingBuffer,
+			myTextureImage,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1,
+			&bufferImageCopy
+		);
+
+		// Transition the Image to an optimal layout for use as a shader's read-only sampling source.
+		vkdemos::submitImageBarrier(
+			textureCopyCmdBuffer,
+			myTextureImage,
+			VK_ACCESS_TRANSFER_WRITE_BIT,
+			VK_ACCESS_SHADER_READ_BIT,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+		);
+
+		// End command buffer recording.
+		result = vkEndCommandBuffer(textureCopyCmdBuffer);
+
+		// Submit the command buffer to the queue
+		VkSubmitInfo submitInfo = {
+			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.pNext = nullptr,
+			.waitSemaphoreCount = 0,
+			.pWaitSemaphores = nullptr,
+			.pWaitDstStageMask = nullptr,
+			.commandBufferCount = 1,
+			.pCommandBuffers = &textureCopyCmdBuffer,
+			.signalSemaphoreCount = 0,
+			.pSignalSemaphores = nullptr
+		};
+
+		result = vkQueueSubmit(myQueue, 1, &submitInfo, VK_NULL_HANDLE);
+		assert(result == VK_SUCCESS);
+	}
+
+
+
+	// Create sampler
+	// In Vulkan textures are accessed by samplers
+	// This separates all the sampling information from the
+	// texture data
+	// This means you could have multiple sampler objects
+	// for the same texture with different settings
+	// Similar to the samplers available with OpenGL 3.3
+	VkSampler mySampler;
+
+	VkSamplerCreateInfo samplerCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.magFilter = VK_FILTER_NEAREST,
+		.minFilter = VK_FILTER_NEAREST,
+		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		.mipLodBias = 0.0f,
+		.minLod = 0.0f,
+		.maxLod = 0.0f,
+		.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.anisotropyEnable = VK_TRUE,   // Anisotropic filter
+		.maxAnisotropy = 4,
+		.compareEnable = VK_FALSE,
+		.compareOp = VK_COMPARE_OP_NEVER,
+		.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+		.unnormalizedCoordinates = VK_FALSE,
+	};
+
+	result = vkCreateSampler(myDevice, &samplerCreateInfo, nullptr, &mySampler);
+	assert(result == VK_SUCCESS);
+
+
+	/*
+	 * Create the descriptor set layout.
+	 *
+	 * Note on field pImmutableSamplers: if you don't need to change your samplers
+	 * at draw time, you can set the samplers now and you won't need to set them
+	 * at draw time. Refer to section 13.2.1 of Vulkan's specification for more informations.
+	 */
+	VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {
+		.binding = 0,
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+		.pImmutableSamplers = nullptr,
+	};
+
+	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.bindingCount = 1,
+		.pBindings = &descriptorSetLayoutBinding,
+	};
+
+	VkDescriptorSetLayout myDescriptorSetLayout;
+	result = vkCreateDescriptorSetLayout(myDevice, &descriptorSetLayoutCreateInfo, nullptr, &myDescriptorSetLayout);
+	assert(result == VK_SUCCESS);
+
+
+
+	/*
+	 * Create descriptor pool.
+	 */
+	VkDescriptorPoolSize descriptorPoolSize = {
+	    .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	    .descriptorCount = 1,
+	};
+
+	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {
+	    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+	    .pNext = nullptr,
+	    .flags = 0,
+	    .maxSets = 1,
+	    .poolSizeCount = 1,
+	    .pPoolSizes = &descriptorPoolSize,
+	};
+
+	VkDescriptorPool myDescriptorPool;
+	result = vkCreateDescriptorPool(myDevice, &descriptorPoolCreateInfo, nullptr, &myDescriptorPool);
+	assert(result == VK_SUCCESS);
+
+
+
+
+	/*
+	 * Create descriptor set.
+	 */
+	VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {
+	    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+	    .pNext = nullptr,
+	    .descriptorPool = myDescriptorPool,
+	    .descriptorSetCount = 1,
+	    .pSetLayouts = &myDescriptorSetLayout,
+	};
+
+	VkDescriptorSet myDescriptorSet;
+	result = vkAllocateDescriptorSets(myDevice, &descriptorSetAllocateInfo, &myDescriptorSet);
+	assert(result == VK_SUCCESS);
+
+
+	/*
+	 * Update the descriptor set.
+	 */
+	VkDescriptorImageInfo descriptorImageInfo = {
+	    .sampler = mySampler,
+	    .imageView = myTextureImageView,
+	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	};
+
+	VkWriteDescriptorSet writeDescriptorSet = {
+	    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	    .pNext = nullptr,
+	    .dstSet = myDescriptorSet,
+	    .dstBinding = 0,
+	    .dstArrayElement = 0,
+	    .descriptorCount = 1,
+	    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	    .pImageInfo = &descriptorImageInfo,
+	    .pBufferInfo = nullptr,
+	    .pTexelBufferView = nullptr,
+	};
+
+	vkUpdateDescriptorSets(myDevice, 1, &writeDescriptorSet, 0, nullptr);
+
+
+
+	/*
+	 * Specify Push Constant parameters.
 	 */
 	const VkPushConstantRange pushConstantRange = {
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -212,12 +497,15 @@ int main(int argc, char* argv[])
 		.size = 4       // both "offset" and "size" are specified in bytes.
 	};
 
+	/*
+	 * Create the pipeline.
+	 */
 	const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.setLayoutCount = 0,
-		.pSetLayouts = nullptr,
+		.setLayoutCount = 1,
+		.pSetLayouts = &myDescriptorSetLayout,
 		.pushConstantRangeCount = 1,
 		.pPushConstantRanges = &pushConstantRange,
 	};
@@ -230,28 +518,6 @@ int main(int argc, char* argv[])
 	boolResult = demo02CreatePipeline(myDevice, myRenderPass, myPipelineLayout, VERTEX_SHADER_FILENAME, FRAGMENT_SHADER_FILENAME, VERTEX_INPUT_BINDING, myPipeline);
 	assert(boolResult);
 
-
-	/*
-	 * Per-Frame data
-	 */
-	PerFrameData perFrameDataVector[FRAME_LAG];
-
-	for(int i = 0; i < FRAME_LAG; i++)
-	{
-		boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, perFrameDataVector[i].presentCmdBuffer);
-		assert(boolResult);
-
-		result = vkdemos::utils::createFence(myDevice, perFrameDataVector[i].presentFence);
-		assert(result == VK_SUCCESS);
-
-		result = vkdemos::utils::createSemaphore(myDevice, perFrameDataVector[i].imageAcquiredSemaphore);
-		assert(result == VK_SUCCESS);
-
-		result = vkdemos::utils::createSemaphore(myDevice, perFrameDataVector[i].renderingCompletedSemaphore);
-		assert(result == VK_SUCCESS);
-
-		perFrameDataVector[i].fenceInitialized = false;
-	}
 
 	/*
 	 * Generation and submission of the initialization commands' command buffer.
@@ -277,10 +543,29 @@ int main(int argc, char* argv[])
 	result = vkQueueSubmit(myQueue, 1, &submitInfo, VK_NULL_HANDLE);
 	assert(result == VK_SUCCESS);
 
+	// Per-Frame data.
+	PerFrameData perFrameDataVector[FRAME_LAG];
+
+	for(int i = 0; i < FRAME_LAG; i++)
+	{
+		boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, perFrameDataVector[i].presentCmdBuffer);
+		assert(boolResult);
+
+		result = vkdemos::utils::createFence(myDevice, perFrameDataVector[i].presentFence);
+		assert(result == VK_SUCCESS);
+
+		result = vkdemos::utils::createSemaphore(myDevice, perFrameDataVector[i].imageAcquiredSemaphore);
+		assert(result == VK_SUCCESS);
+
+		result = vkdemos::utils::createSemaphore(myDevice, perFrameDataVector[i].renderingCompletedSemaphore);
+		assert(result == VK_SUCCESS);
+
+		perFrameDataVector[i].fenceInitialized = false;
+	}
+
 	// Wait for the queue to complete its work.
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
-
 
 	/*
 	 * Event loop
@@ -317,7 +602,7 @@ int main(int argc, char* argv[])
 		{
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !demo05RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight, animationTime);
+			quit = !demo05RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, myDescriptorSet, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight, animationTime);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -369,9 +654,20 @@ int main(int argc, char* argv[])
 		vkDestroySemaphore(myDevice, perFrameDataVector[i].renderingCompletedSemaphore, nullptr);
 	}
 
-	/*
-	 * For more informations on the following commands, refer to Demo 02.
-	 */
+	// Destroy sampler and descriptor pool/set layout
+	vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
+	vkDestroyDescriptorSetLayout(myDevice, myDescriptorSetLayout, nullptr);
+	vkDestroySampler(myDevice, mySampler, nullptr);
+
+	// Free the staging buffer and the texture image.
+	vkFreeMemory(myDevice, myStagingBufferMemory, nullptr);
+	vkDestroyBuffer(myDevice, myStagingBuffer, nullptr);
+
+	vkDestroyImageView(myDevice, myTextureImageView, nullptr);
+	vkDestroyImage(myDevice, myTextureImage, nullptr);
+	vkFreeMemory(myDevice, myTextureImageMemory, nullptr);
+
+	// For more informations on the following commands, refer to Demo 02.
 	vkDestroyPipeline(myDevice, myPipeline, nullptr);
 	vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
 	vkDestroyBuffer(myDevice, myVertexBuffer, nullptr);
@@ -385,9 +681,7 @@ int main(int argc, char* argv[])
 	vkDestroyImage(myDevice, myDepthImage, nullptr);
 	vkFreeMemory(myDevice, myDepthMemory, nullptr);
 
-	/*
-	 * For more informations on the following commands, refer to Demo 01.
-	 */
+	// For more informations on the following commands, refer to Demo 01.
 	vkDestroyCommandPool(myDevice, myCommandPool, nullptr);
 
 	for(auto imgView : mySwapchainImageViewsVector)

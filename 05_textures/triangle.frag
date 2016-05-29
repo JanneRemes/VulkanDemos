@@ -8,7 +8,13 @@ layout(push_constant) uniform PushConstants
 	float animationTime;
 } pushConstants;
 
+// Combined Image Sampler Binding
+layout (binding = 0) uniform sampler2D textureSampler;
 
+// Inputs
+layout(location = 0) in vec2 inUV;
+
+// Outputs
 layout(location = 0) out vec4 outFragmentColor;
 
 
@@ -26,6 +32,9 @@ vec3 hsv2rgb(vec3 c)
 
 void main()
 {
-	float hue = fract(pushConstants.animationTime / 7000.0);
-	outFragmentColor = vec4(hsv2rgb(vec3(hue, 1.0, 1.0)), 1.0);
+	//float hue = fract(pushConstants.animationTime / 7000.0);
+	//outFragmentColor = vec4(hsv2rgb(vec3(hue, 1.0, 1.0)), 1.0);
+
+	vec4 sampl = texture(textureSampler, inUV);
+	outFragmentColor = vec4(sampl.rgb, 1.0);
 }
