@@ -46,21 +46,61 @@ static const std::string FRAGMENT_SHADER_FILENAME = "fragment.spirv";
 static constexpr int VERTEX_INPUT_BINDING = 0;
 
 // Vertex data to draw.
-static constexpr int NUM_DEMO_VERTICES = 3;
+static constexpr int NUM_DEMO_VERTICES = 4*3;
 static const TriangleDemoVertex vertices[NUM_DEMO_VERTICES] =
 {
 	//      position       |      color
-	/*
-	{  0.433f, 0.25f, 0.0f,  0.1f, 0.8f, 0.1f },
-	{ -0.433f, 0.25f, 0.0f,  0.8f, 0.1f, 0.1f },
-	{  0.0f  , -0.5f, 0.0f,  0.1f, 0.1f, 0.8f },*/
-    /*{  0.433f, 0.25f, 0.0f,  0.0f, 0.0f, 0.0f },
-	{ -0.433f, 0.25f, 0.0f,  0.0f, 1.0f, 0.0f },
-	{  0.0f  , -0.5f, 0.0f,  1.0f, 1.0f, 0.0f },*/
-    {  0.5f, 0.25f, 0.0f,  1.0f, 1.0f, 0.0f },
-	{ -0.5f, 0.25f, 0.0f,  0.0f, 1.0f, 0.0f },
-	{ -0.5f, -0.5f, 0.0f,  0.0f, 0.0f, 0.0f },
+	{ -0.5f, -0.5f, -10.0f,  0.0f, 0.0f, 0.0f },
+    {  0.5f,  0.5f, -10.0f,  1.0f, 1.0f, 0.0f },
+	{ -0.5f,  0.5f, -10.0f,  0.0f, 1.0f, 0.0f },
+
+	{ -0.5f, -0.5f, -10.0f,  0.0f, 0.0f, 0.0f },
+    {  0.5f, -0.5f, -10.0f,  0.0f, 1.0f, 0.0f },
+    {  0.5f,  0.5f, -10.0f,  1.0f, 1.0f, 0.0f },
+
+    { -0.5f+1.0f, -0.5f+0.05f, -5.0f,  0.0f, 0.0f, 1.0f },
+    {  0.5f+1.0f,  0.5f+0.05f, -5.0f,  1.0f, 1.0f, 1.0f },
+	{ -0.5f+1.0f,  0.5f+0.05f, -5.0f,  0.0f, 1.0f, 1.0f },
+
+	{ -0.5f+1.0f, -0.5f+0.05f, -5.0f,  0.0f, 0.0f, 1.0f },
+    {  0.5f+1.0f, -0.5f+0.05f, -5.0f,  0.0f, 1.0f, 1.0f },
+    {  0.5f+1.0f,  0.5f+0.05f, -5.0f,  1.0f, 1.0f, 1.0f },
 };
+
+// Texture stuff
+struct PixelData {    // data for single pixel.
+	uint8_t r = 0;
+	uint8_t g = 0;
+	uint8_t b = 0;
+	uint8_t a = 255;
+};
+
+static constexpr int TEXTURE_WIDTH = 256;
+static constexpr int TEXTURE_HEIGHT = 256;
+
+/*
+ *
+ */
+void generateTexture(PixelData *buffer, const int width, const int height)
+{
+	PixelData *ptr = buffer;
+
+	for(int y = 0; y < height; y++)
+	for(int x = 0; x < width; x++)
+	{
+		PixelData pixel;
+		pixel.r = uint8_t( (((x&8)==0)^((y&8)==0))*255 );
+		pixel.g = 40;
+		pixel.b = 40;
+
+		//buffer[y*width + x] = pixel;
+		*(ptr++) = pixel;
+	}
+}
+
+
+
+
 
 
 /**
@@ -221,12 +261,9 @@ int main(int argc, char* argv[])
 	VkDeviceMemory myTextureImageMemory;
 
 	{
-		struct FakePixel{ uint8_t r,g,b,a; };
-		FakePixel textureData[256][256];
+		PixelData textureData[TEXTURE_HEIGHT][TEXTURE_WIDTH];
 
-		for(int y = 0; y < 256; y++)
-			for(int x = 0; x < 256; x++)
-				textureData[y][x] = {(uint8_t)((((x&8)==0)^((y&8)==0))*255), 40, 40, 255};
+		generateTexture(&textureData[0][0], TEXTURE_WIDTH, TEXTURE_HEIGHT);
 
 		/*
 		 * Allocate memory for staging buffer, map it, and fill it with our texture's data.
@@ -234,9 +271,9 @@ int main(int argc, char* argv[])
 		boolResult = vkdemos::createAndAllocateBuffer(
 		                 myDevice,
 		                 myMemoryProperties,
-		                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,    // Use this buffer as a source for transfers
-		                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, // It must be host-visible since we'll map it and copy data to it.
-		                 256*256*sizeof(FakePixel),
+		                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, // Use this buffer as a source for transfers
+		                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,                                 // It must be host-visible since we'll map it and copy data to it.
+		                 TEXTURE_WIDTH*TEXTURE_HEIGHT*sizeof(PixelData),
 		                 myStagingBuffer,
 		                 myStagingBufferMemory
 		             );
@@ -247,7 +284,7 @@ int main(int argc, char* argv[])
 		result = vkMapMemory(myDevice, myStagingBufferMemory, 0, VK_WHOLE_SIZE, 0, &mappedBuffer);
 		assert(result == VK_SUCCESS);
 
-		memcpy(mappedBuffer, textureData, 256*256*sizeof(FakePixel));
+		memcpy(mappedBuffer, textureData, TEXTURE_WIDTH*TEXTURE_HEIGHT*sizeof(PixelData));
 
 		vkUnmapMemory(myDevice, myStagingBufferMemory);
 
@@ -262,8 +299,8 @@ int main(int argc, char* argv[])
 		                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,   // The image will be used as a sampling source and a transfer destination
 		                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,    // The Image will reside in device-local memory.
 		                 VK_FORMAT_R8G8B8A8_UNORM,
-		                 256,  // width
-		                 256,  // height
+		                 TEXTURE_WIDTH,  // width
+		                 TEXTURE_HEIGHT,  // height
 		                 myTextureImage,
 		                 myTextureImageMemory,
 		                 &myTextureImageView,
@@ -314,7 +351,7 @@ int main(int argc, char* argv[])
 				.layerCount = 1,
 		    },
 		    .imageOffset = {0, 0, 0},
-		    .imageExtent = {.width = 256, .height = 256, .depth = 0},
+		    .imageExtent = {.width = TEXTURE_WIDTH, .height = TEXTURE_HEIGHT, .depth = 0},
 		};
 
 		vkCmdCopyBufferToImage(
@@ -358,7 +395,9 @@ int main(int argc, char* argv[])
 	}
 
 
-
+	/*
+	 * TODO rewrite description
+	 */
 	// Create sampler
 	// In Vulkan textures are accessed by samplers
 	// This separates all the sampling information from the
@@ -372,9 +411,9 @@ int main(int argc, char* argv[])
 		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.magFilter = VK_FILTER_NEAREST,
-		.minFilter = VK_FILTER_NEAREST,
-		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		.magFilter = VK_FILTER_LINEAR,
+		.minFilter = VK_FILTER_LINEAR,
+		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
 		.mipLodBias = 0.0f,
 		.minLod = 0.0f,
 		.maxLod = 0.0f,
@@ -382,7 +421,7 @@ int main(int argc, char* argv[])
 		.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
 		.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
 		.anisotropyEnable = VK_TRUE,   // Anisotropic filter
-		.maxAnisotropy = 4,
+		.maxAnisotropy = 8,
 		.compareEnable = VK_FALSE,
 		.compareOp = VK_COMPARE_OP_NEVER,
 		.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
@@ -602,7 +641,7 @@ int main(int argc, char* argv[])
 		{
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !demo05RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, myDescriptorSet, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight, animationTime);
+			quit = !demo05RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, NUM_DEMO_VERTICES, myDescriptorSet, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight, animationTime);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -619,6 +658,7 @@ int main(int argc, char* argv[])
 				auto average = frameAvgTimeSum/FRAMES_PER_STAT;
 				auto stddev = std::sqrt(frameAvgTimeSumSquare/FRAMES_PER_STAT - average*average);
 				std::cout << "Frame time: average " << std::setw(6) << average
+				          << " ("<< 1000000.0f/average << " FPS)"
 				          << " us, maximum " << std::setw(6) << frameMaxTime
 				          << " us, minimum " << std::setw(6) << frameMinTime
 				          << " us, stddev " << (long)stddev

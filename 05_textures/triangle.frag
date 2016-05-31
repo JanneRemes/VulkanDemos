@@ -9,10 +9,11 @@ layout(push_constant) uniform PushConstants
 } pushConstants;
 
 // Combined Image Sampler Binding
-layout (binding = 0) uniform sampler2D textureSampler;
+layout(set = 0, binding = 0) uniform sampler2D textureSampler;	// this sampler is attached to binding point 0 inside descriptor set 0
 
 // Inputs
 layout(location = 0) in vec2 inUV;
+layout(location = 1) in vec3 inColor;
 
 // Outputs
 layout(location = 0) out vec4 outFragmentColor;
@@ -35,6 +36,11 @@ void main()
 	//float hue = fract(pushConstants.animationTime / 7000.0);
 	//outFragmentColor = vec4(hsv2rgb(vec3(hue, 1.0, 1.0)), 1.0);
 
+	float a = gl_PrimitiveID % 2 == 0 ? 1.0 : 0.5;
+
 	vec4 sampl = texture(textureSampler, inUV);
-	outFragmentColor = vec4(sampl.rgb, 1.0);
+
+	vec3 finCol = inColor.x == 0.0 ? sampl.rgb : sampl.brg;
+
+	outFragmentColor = vec4(finCol*a, 1.0);
 }

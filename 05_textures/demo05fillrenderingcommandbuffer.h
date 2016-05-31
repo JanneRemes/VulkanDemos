@@ -15,6 +15,7 @@ bool demo05FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
                                       const VkPipelineLayout thePipelineLayout,
                                       const VkBuffer theVertexBuffer,
                                       const uint32_t vertexInputBinding,
+                                      const uint32_t numberOfVertices,
                                       const VkDescriptorSet theDescriptorSet,
                                       const int width,
                                       const int height,
@@ -112,7 +113,7 @@ bool demo05FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	);
 
 	// Send the draw command, that will begin all the rendering magic
-	vkCmdDraw(theCommandBuffer, 3, 1, 0, 0);
+	vkCmdDraw(theCommandBuffer, numberOfVertices, 1, 0, 0);
 
 	// End the render pass commands.
 	vkCmdEndRenderPass(theCommandBuffer);
