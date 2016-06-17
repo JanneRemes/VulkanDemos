@@ -2,6 +2,7 @@
 #define DEMO05RENDERSINGLEFRAME_H
 
 #include "demo05fillrenderingcommandbuffer.h"
+#include "pushconstdata.h"
 
 #include <vulkan/vulkan.h>
 #include <vector>
@@ -37,7 +38,7 @@ bool demo05RenderSingleFrame(const VkDevice theDevice,
                              PerFrameData & thePerFrameData,
                              const int width,
                              const int height,
-                             const float animationTime
+                             const PushConstData & pushConstData
                              )
 {
 	VkResult result;
@@ -73,7 +74,7 @@ bool demo05RenderSingleFrame(const VkDevice theDevice,
 	/*
 	 * Fill the present command buffer with... the present commands.
 	 */
-	bool boolResult = demo05FillRenderingCommandBuffer(thePerFrameData.presentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, thePipelineLayout, theVertexBuffer, vertexInputBinding, numberOfVertices, theDescriptorSet, width, height, animationTime);
+	bool boolResult = demo05FillRenderingCommandBuffer(thePerFrameData.presentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, thePipelineLayout, theVertexBuffer, vertexInputBinding, numberOfVertices, theDescriptorSet, width, height, pushConstData);
 	assert(boolResult);
 
 
@@ -119,7 +120,6 @@ bool demo05RenderSingleFrame(const VkDevice theDevice,
 	}
 	else if(result != VK_SUBOPTIMAL_KHR)
 		assert(result == VK_SUCCESS);
-
 
 	return true;
 }

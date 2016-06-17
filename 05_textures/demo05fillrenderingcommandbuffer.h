@@ -1,6 +1,8 @@
 #ifndef DEMO05FILLRENDERINGCOMMANDBUFFER_H
 #define DEMO05FILLRENDERINGCOMMANDBUFFER_H
 
+#include "pushconstdata.h"
+
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <cassert>
@@ -19,7 +21,7 @@ bool demo05FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
                                       const VkDescriptorSet theDescriptorSet,
                                       const int width,
                                       const int height,
-                                      const float animationTime
+                                      const PushConstData & pushConstData
                                       )
 {
 	VkResult result;
@@ -107,9 +109,9 @@ bool demo05FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 		theCommandBuffer,
 		thePipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,  // shader stages that will use the push constants
-		0,               // push constant offset (as defined in the push constants range in the pipeline layout)
-		4,               // length of push constants data
-		&animationTime   // pointer to push constants data
+		0,                      // push constant offset (as defined in the push constants range in the pipeline layout)
+		sizeof(PushConstData),  // length of push constants data
+		&pushConstData          // pointer to push constants data
 	);
 
 	// Send the draw command, that will begin all the rendering magic

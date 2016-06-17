@@ -5,6 +5,7 @@
 // Push Constants block
 layout(push_constant) uniform PushConstants
 {
+	mat4 projMatrix;
 	float animationTime;
 } pushConstants;
 
@@ -36,11 +37,15 @@ void main()
 	//float hue = fract(pushConstants.animationTime / 7000.0);
 	//outFragmentColor = vec4(hsv2rgb(vec3(hue, 1.0, 1.0)), 1.0);
 
-	float a = gl_PrimitiveID % 2 == 0 ? 1.0 : 0.5;
+	//float a = gl_PrimitiveID % 2 == 0 ? 1.0 : 0.5;
 
 	vec4 sampl = texture(textureSampler, inUV);
 
-	vec3 finCol = inColor.x == 0.0 ? sampl.rgb : sampl.brg;
+	vec3 corr = inColor.x == 0.0 ? sampl.rgb : sampl.brg;
+//	vec3 corr = sampl.rgb;
+	/*corr.r = pow(corr.r, 1.0/2.2);
+	corr.g = pow(corr.g, 1.0/2.2);
+	corr.b = pow(corr.b, 1.0/2.2);*/
 
-	outFragmentColor = vec4(finCol*a, 1.0);
+	outFragmentColor = vec4(corr, 1.0);
 }

@@ -16,7 +16,13 @@
 #include "../00_commons/09_createAndAllocateBuffer.h"
 #include "../00_commons/10_submitimagebarrier.h"
 
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include "../00_commons/glm/glm/glm.hpp"
+#include "../00_commons/glm/glm/gtc/matrix_transform.hpp"
+
 #include "demo05rendersingleframe.h"
+#include "pushconstdata.h"
 
 // CreatePipeline and CreateRenderPass are the same as Demo 02
 #include "../02_triangle/demo02createpipeline.h"
@@ -45,27 +51,62 @@ static const std::string FRAGMENT_SHADER_FILENAME = "fragment.spirv";
 
 static constexpr int VERTEX_INPUT_BINDING = 0;
 
+
+// TODO put UV instead of color
 // Vertex data to draw.
-static constexpr int NUM_DEMO_VERTICES = 4*3;
+static constexpr int NUM_DEMO_VERTICES = 3*2*6;
 static const TriangleDemoVertex vertices[NUM_DEMO_VERTICES] =
 {
-	//      position       |      color
-	{ -0.5f, -0.5f, -10.0f,  0.0f, 0.0f, 0.0f },
-    {  0.5f,  0.5f, -10.0f,  1.0f, 1.0f, 0.0f },
-	{ -0.5f,  0.5f, -10.0f,  0.0f, 1.0f, 0.0f },
+	//      position       |     color
+	{ -0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f },        // front
+	{  0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
+	{ -0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 0.0f },
 
-	{ -0.5f, -0.5f, -10.0f,  0.0f, 0.0f, 0.0f },
-    {  0.5f, -0.5f, -10.0f,  0.0f, 1.0f, 0.0f },
-    {  0.5f,  0.5f, -10.0f,  1.0f, 1.0f, 0.0f },
+	{ -0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f },
+	{  0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f },
+	{  0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
 
-    { -0.5f+1.0f, -0.5f+0.05f, -5.0f,  0.0f, 0.0f, 1.0f },
-    {  0.5f+1.0f,  0.5f+0.05f, -5.0f,  1.0f, 1.0f, 1.0f },
-	{ -0.5f+1.0f,  0.5f+0.05f, -5.0f,  0.0f, 1.0f, 1.0f },
+	{ -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f },        // back
+	{ -0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f },
+	{  0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
 
-	{ -0.5f+1.0f, -0.5f+0.05f, -5.0f,  0.0f, 0.0f, 1.0f },
-    {  0.5f+1.0f, -0.5f+0.05f, -5.0f,  0.0f, 1.0f, 1.0f },
-    {  0.5f+1.0f,  0.5f+0.05f, -5.0f,  1.0f, 1.0f, 1.0f },
+	{ -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f },
+	{  0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
+	{  0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 0.0f },
+
+	{ -0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f },        // left
+	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
+	{ -0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 0.0f },
+
+	{ -0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f },
+	{ -0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
+	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
+
+	{  0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f },        // right
+	{  0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f },
+	{  0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f },
+
+	{  0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f },
+	{  0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f },
+	{  0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 0.0f },
+
+	{ -0.5f, -0.5f,  0.5f,  0.0f, 1.0f, 0.0f },        // top
+	{ -0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 0.0f },
+	{  0.5f, -0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
+
+	{ -0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 0.0f },
+	{  0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f },
+	{  0.5f, -0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
+
+	{ -0.5f,  0.5f,  0.5f,  0.0f, 0.0f, 0.0f },        // bottom
+	{  0.5f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f },
+	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
+
+	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
+	{  0.5f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f },
+	{  0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f },
 };
+
 
 // Texture stuff
 struct PixelData {    // data for single pixel.
@@ -78,8 +119,9 @@ struct PixelData {    // data for single pixel.
 static constexpr int TEXTURE_WIDTH = 256;
 static constexpr int TEXTURE_HEIGHT = 256;
 
+
 /*
- *
+ * Load/Generate a texture
  */
 void generateTexture(PixelData *buffer, const int width, const int height)
 {
@@ -89,12 +131,55 @@ void generateTexture(PixelData *buffer, const int width, const int height)
 	for(int x = 0; x < width; x++)
 	{
 		PixelData pixel;
-		pixel.r = uint8_t( (((x&8)==0)^((y&8)==0))*255 );
-		pixel.g = 40;
-		pixel.b = 40;
+		/*pixel.r = uint8_t( (((x&16)==0)^((y&16)==0))*255 );
+		pixel.g = uint8_t( (((x&2)==0)^((y&2)==0))*255 );
+		pixel.b = uint8_t( (((x&128)==0)^((y&128)==0))*255 );*/
 
-		//buffer[y*width + x] = pixel;
+		/*auto v = hsv2rgb({float(y)/height, float(x)/width, 1.0f});
+		pixel = {uint8_t(v.r*255), uint8_t(v.g*255), uint8_t(v.g*255), 255u};*/
+
+		pixel.r = uint8_t( x > y )*200u;
+		pixel.g = uint8_t( x <= y )*200u;
+		pixel.b = uint8_t( 0 );
+
+		if(((x&16)==0)^((y&16)==0)) {
+			pixel.r = pixel.r/2;
+			pixel.g = pixel.g/2;
+			pixel.b = pixel.b/2;
+		}
+
 		*(ptr++) = pixel;
+	}
+
+	for(int x = 50; x < 205; x++)
+	{
+		int y = 70;
+		PixelData pixel;
+		pixel.r = uint8_t( 0 );
+		pixel.g = uint8_t( 0 );
+		pixel.b = uint8_t( 0 );
+		buffer[y*width + x] = pixel;
+	}
+
+	for(int y = 50; y < 205; y++)
+	{
+		int x = 128;
+		PixelData pixel;
+		pixel.r = uint8_t( 0 );
+		pixel.g = uint8_t( 0 );
+		pixel.b = uint8_t( 0 );
+		buffer[y*width + x] = pixel;
+	}
+
+	for(int o = 0; o < 70; o++)
+	{
+		int x = 128+o;
+		int y = 90+o;
+		PixelData pixel;
+		pixel.r = uint8_t( 0 );
+		pixel.g = uint8_t( 0 );
+		pixel.b = uint8_t( 0 );
+		buffer[y*width + x] = pixel;
 	}
 }
 
@@ -328,6 +413,13 @@ int main(int argc, char* argv[])
 		result = vkBeginCommandBuffer(textureCopyCmdBuffer, &commandBufferBeginInfo);
 		assert(result == VK_SUCCESS);
 
+
+		/*
+		 * TODO:
+		 * // Transition the buffer from host write to transfer read
+		 * bufferBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+		 * bufferBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		 */
 		// Transition the Image to an optimal layout for use as a copy command's destination.
 		vkdemos::submitImageBarrier(
 			textureCopyCmdBuffer,
@@ -530,10 +622,12 @@ int main(int argc, char* argv[])
 	/*
 	 * Specify Push Constant parameters.
 	 */
+	static_assert(sizeof(PushConstData) % 4 == 0, "PushConstData size is not a multiple of 4 bytes.");
+
 	const VkPushConstantRange pushConstantRange = {
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-		.offset = 0,    // We pass a single, 32-bit float value;
-		.size = 4       // both "offset" and "size" are specified in bytes.
+		.offset = 0,                   // We start at offset 0,
+		.size = sizeof(PushConstData)  // both "offset" and "size" are specified in bytes, and must be multiple of 4.
 	};
 
 	/*
@@ -612,7 +706,7 @@ int main(int argc, char* argv[])
 	SDL_Event sdlEvent;
 	bool quit = false;
 
-	float animationTime = 0;
+	PushConstData pushConstData;
 
 	// Just some variables for frame statistics
 	long frameNumber = 0;
@@ -628,10 +722,10 @@ int main(int argc, char* argv[])
 		// Process events for this frame
 		while(SDL_PollEvent(&sdlEvent))
 		{
-			if (sdlEvent.type == SDL_QUIT) {
+			if(sdlEvent.type == SDL_QUIT) {
 				quit = true;
 			}
-			if (sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
+			if(sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
 				quit = true;
 			}
 		}
@@ -639,9 +733,19 @@ int main(int argc, char* argv[])
 		// Rendering code
 		if(!quit)
 		{
+			// Calculate projection*model matrix.
+			glm::mat4 projMatrix = glm::perspective(glm::radians(60.0f), (float)windowWidth / (float)windowHeight, 0.001f, 256.0f);
+			glm::mat4 modelMatrix{};
+
+			modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 0.0f, -2.5f));
+			modelMatrix = glm::rotate(modelMatrix, glm::radians(-30.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			modelMatrix = glm::rotate(modelMatrix, glm::radians(glm::mod(pushConstData.animationTime/60.0f, 360.0f)), glm::vec3(0.0f, 1.0f, 0.0f));
+
+			pushConstData.projMatrix = projMatrix * modelMatrix;
+
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !demo05RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, NUM_DEMO_VERTICES, myDescriptorSet, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight, animationTime);
+			quit = !demo05RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, NUM_DEMO_VERTICES, myDescriptorSet, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight, pushConstData);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -674,7 +778,7 @@ int main(int argc, char* argv[])
 			frameNumber++;
 
 			// Update animation
-			animationTime += elapsedTimeUs / 1000.0f;
+			pushConstData.animationTime += elapsedTimeUs / 1000.0f;
 		}
 	}
 
