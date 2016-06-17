@@ -8,11 +8,8 @@
 /**
  * Fill the specified command buffer with the initialization commands for this demo.
  *
- * The commands consist in just a bunch of CmdPipelineBarrier that transition the
- * swapchain images from VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR.
  */
 bool demo02FillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffer,
-                                           const std::vector<VkImage> & theSwapchainImagesVector,
                                            const VkImage theDepthImage
                                            )
 {
@@ -20,29 +17,7 @@ bool demo02FillInitializationCommandBuffer(const VkCommandBuffer theCommandBuffe
 	std::vector<VkImageMemoryBarrier> memoryBarriersVector;
 
 	/*
-	 * Memory barriers for the swapchain images.
-	*/
-	for(const auto & image : theSwapchainImagesVector)
-	{
-		VkImageMemoryBarrier imageMemoryBarrier = {
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.pNext = nullptr,
-			.srcAccessMask = 0,
-			.dstAccessMask = 0,
-			.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-			.image = image,
-		};
-
-		memoryBarriersVector.push_back(imageMemoryBarrier);
-	}
-
-
-	/*
-	 * We also prepare the depth buffer's image, transitioning it
+	 * We prepare the depth buffer's image, transitioning it
 	 * to VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
 	 */
 	{

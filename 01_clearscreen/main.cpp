@@ -13,7 +13,6 @@
 #include "../00_commons/06_swapchain.h"
 #include "../00_commons/07_commandPoolAndBuffer.h"
 
-#include "demo01fillinitializationcommandbuffer.h"
 #include "demo01rendersingleframe.h"
 
 // Includes for this file
@@ -121,42 +120,6 @@ int main(int argc, char* argv[])
 	VkCommandBuffer myCmdBufferPresent;
 	boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, myCmdBufferPresent);
 	assert(boolResult);
-
-
-	/*
-	 * We completed the creation and allocation of all the resources we need!
-	 * Now it's time to build and submit the first command buffer that will contain
-	 * all the initialization commands, such as transitioning the images from
-	 * VK_IMAGE_LAYOUT_UNDEFINED to something sensible.
-	 */
-
-	// We fill the initialization command buffer with... the initialization commands.
-	boolResult = demo01FillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector);
-	assert(boolResult);
-
-	// We now submit the command buffer to the queue we created before, and we wait
-	// for its completition.
-	VkSubmitInfo submitInfo = {
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.pNext = nullptr,
-		.waitSemaphoreCount = 0,
-		.pWaitSemaphores = nullptr,
-		.pWaitDstStageMask = nullptr,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &myCmdBufferInitialization,
-		.signalSemaphoreCount = 0,
-		.pSignalSemaphores = nullptr
-	};
-
-	result = vkQueueSubmit(myQueue, 1, &submitInfo, VK_NULL_HANDLE);
-	assert(result == VK_SUCCESS);
-
-	// Wait for the queue to complete its work.
-	// Note: in a "real world" application you wouldn't use this function, but you would
-	// use a semaphore (a pointer to which goes in the above VkSubmitInfo struct)
-	// that will get signalled once the queue completes all the previous commands.
-	result = vkQueueWaitIdle(myQueue);
-	assert(result == VK_SUCCESS);
 
 	std::cout << "\n---- Rendering Start ----" << std::endl;
 

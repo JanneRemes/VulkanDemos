@@ -23,10 +23,10 @@
 #include "../00_commons/glm/glm/gtc/matrix_transform.hpp"
 
 #include "demo05rendersingleframe.h"
+#include "demo05createpipeline.h"
 #include "pushconstdata.h"
 
-// CreatePipeline and CreateRenderPass are the same as Demo 02
-#include "../02_triangle/demo02createpipeline.h"
+// CreateRenderPass are the same as Demo 02
 #include "../02_triangle/demo02createrenderpass.h"
 #include "../02_triangle/demo02fillinitializationcommandbuffer.h"
 
@@ -53,59 +53,58 @@ static const std::string FRAGMENT_SHADER_FILENAME = "fragment.spirv";
 static constexpr int VERTEX_INPUT_BINDING = 0;
 
 
-// TODO put UV instead of color
 // Vertex data to draw.
 static constexpr int NUM_DEMO_VERTICES = 3*2*6;
-static const TriangleDemoVertex vertices[NUM_DEMO_VERTICES] =
+static const Demo05Vertex vertices[NUM_DEMO_VERTICES] =
 {
-	//      position       |     color
-	{ -0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f },        // front
-	{  0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
-	{ -0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 0.0f },
+	//      position       |     uv
+	{ -0.5f, -0.5f,  0.5f,  0.0f, 0.0f },        // front
+	{  0.5f,  0.5f,  0.5f,  1.0f, 1.0f },
+	{ -0.5f,  0.5f,  0.5f,  0.0f, 1.0f },
 
-	{ -0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f },
-	{  0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f },
-	{  0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
+	{ -0.5f, -0.5f,  0.5f,  0.0f, 0.0f },
+	{  0.5f, -0.5f,  0.5f,  1.0f, 0.0f },
+	{  0.5f,  0.5f,  0.5f,  1.0f, 1.0f },
 
-	{ -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f },        // back
-	{ -0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f },
-	{  0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
+	{ -0.5f, -0.5f, -0.5f,  1.0f, 0.0f },        // back
+	{ -0.5f,  0.5f, -0.5f,  1.0f, 1.0f },
+	{  0.5f,  0.5f, -0.5f,  0.0f, 1.0f },
 
-	{ -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f },
-	{  0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
-	{  0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 0.0f },
+	{ -0.5f, -0.5f, -0.5f,  1.0f, 0.0f },
+	{  0.5f,  0.5f, -0.5f,  0.0f, 1.0f },
+	{  0.5f, -0.5f, -0.5f,  0.0f, 0.0f },
 
-	{ -0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f },        // left
-	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
-	{ -0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 0.0f },
+	{ -0.5f, -0.5f,  0.5f,  1.0f, 0.0f },        // left
+	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f },
+	{ -0.5f, -0.5f, -0.5f,  0.0f, 0.0f },
 
-	{ -0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f },
-	{ -0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
-	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
+	{ -0.5f, -0.5f,  0.5f,  1.0f, 0.0f },
+	{ -0.5f,  0.5f,  0.5f,  1.0f, 1.0f },
+	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f },
 
-	{  0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f },        // right
-	{  0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f },
-	{  0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f },
+	{  0.5f, -0.5f,  0.5f,  0.0f, 0.0f },        // right
+	{  0.5f, -0.5f, -0.5f,  1.0f, 0.0f },
+	{  0.5f,  0.5f, -0.5f,  1.0f, 1.0f },
 
-	{  0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 0.0f },
-	{  0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f },
-	{  0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 0.0f },
+	{  0.5f, -0.5f,  0.5f,  0.0f, 0.0f },
+	{  0.5f,  0.5f, -0.5f,  1.0f, 1.0f },
+	{  0.5f,  0.5f,  0.5f,  0.0f, 1.0f },
 
-	{ -0.5f, -0.5f,  0.5f,  0.0f, 1.0f, 0.0f },        // top
-	{ -0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 0.0f },
-	{  0.5f, -0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
+	{ -0.5f, -0.5f,  0.5f,  0.0f, 1.0f },        // top
+	{ -0.5f, -0.5f, -0.5f,  0.0f, 0.0f },
+	{  0.5f, -0.5f,  0.5f,  1.0f, 1.0f },
 
-	{ -0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 0.0f },
-	{  0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f },
-	{  0.5f, -0.5f,  0.5f,  1.0f, 1.0f, 0.0f },
+	{ -0.5f, -0.5f, -0.5f,  0.0f, 0.0f },
+	{  0.5f, -0.5f, -0.5f,  1.0f, 0.0f },
+	{  0.5f, -0.5f,  0.5f,  1.0f, 1.0f },
 
-	{ -0.5f,  0.5f,  0.5f,  0.0f, 0.0f, 0.0f },        // bottom
-	{  0.5f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f },
-	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
+	{ -0.5f,  0.5f,  0.5f,  0.0f, 0.0f },        // bottom
+	{  0.5f,  0.5f,  0.5f,  1.0f, 0.0f },
+	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f },
 
-	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f },
-	{  0.5f,  0.5f,  0.5f,  1.0f, 0.0f, 0.0f },
-	{  0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f },
+	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f },
+	{  0.5f,  0.5f,  0.5f,  1.0f, 0.0f },
+	{  0.5f,  0.5f, -0.5f,  1.0f, 1.0f },
 };
 
 
@@ -161,7 +160,7 @@ int main(int argc, char* argv[])
 
 	VkDebugReportCallbackEXT myDebugReportCallback;
 	vkdemos::createDebugReportCallback(myInstance,
-		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT,
+		VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
 		vkdemos::debugCallback,
 		myDebugReportCallback
 	);
@@ -240,7 +239,7 @@ int main(int argc, char* argv[])
 	}
 
 	// Create a buffer to use as the vertex buffer.
-	const size_t vertexBufferSize = sizeof(TriangleDemoVertex)*NUM_DEMO_VERTICES;
+	const size_t vertexBufferSize = sizeof(Demo05Vertex)*NUM_DEMO_VERTICES;
 	VkBuffer myVertexBuffer;
 	VkDeviceMemory myVertexBufferMemory;
 
@@ -349,21 +348,50 @@ int main(int argc, char* argv[])
 
 
 		/*
-		 * TODO:
-		 * // Transition the buffer from host write to transfer read
-		 * bufferBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-		 * bufferBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		 * Transition the Image to an optimal layout for use as a copy command's destination;
+		 * also set a memory barrier on the buffer such that the transfer of data is guaranteed
+		 * to be completed before using it as a source for the copy.
+		 * We can do both operations with a single Pipeline Barrier.
 		 */
-		// Transition the Image to an optimal layout for use as a copy command's destination.
-		vkdemos::submitImageBarrier(
-			textureCopyCmdBuffer,
-			myTextureImage,
-			0,
-			VK_ACCESS_TRANSFER_WRITE_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
-		);
+		{
+			VkImageMemoryBarrier imageMemoryBarrier = {
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+				.pNext = nullptr,
+				.srcAccessMask = 0,
+				.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.subresourceRange =  {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+				.image = myTextureImage,
+			};
+
+			VkBufferMemoryBarrier bufferMemoryBarrier = {
+				.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+				.pNext = nullptr,
+				.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT,
+				.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.buffer = myStagingBuffer,
+				.offset = 0,
+				.size = VK_WHOLE_SIZE,
+			};
+
+			vkCmdPipelineBarrier(textureCopyCmdBuffer,
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, // srcStageMask
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, // dstStageMask
+				0,                                 // dependencyFlags
+				0,                                 // memoryBarrierCount
+				nullptr,                           // pMemoryBarriers
+				1,                                 // bufferMemoryBarrierCount
+				&bufferMemoryBarrier,              // pBufferMemoryBarriers
+				1,                                 // imageMemoryBarrierCount
+				&imageMemoryBarrier                // pImageMemoryBarriers
+			);
+		}
+
 
 		// Copy mip levels from staging buffer
 		VkBufferImageCopy bufferImageCopy = {
@@ -422,15 +450,14 @@ int main(int argc, char* argv[])
 
 
 	/*
-	 * TODO rewrite description
+	 * Create the sampler.
+	 *
+	 * A sampler object contains all the parameters used to describe how
+	 * the textures are sampled by the shaders.
+	 * In OpenGL, sampler information was contained inside the texture object,
+	 * but in Vulkan the two are separate entities, so you can sample many images
+	 * with the same sampler, and you can use many samplers to sample the same image.
 	 */
-	// Create sampler
-	// In Vulkan textures are accessed by samplers
-	// This separates all the sampling information from the
-	// texture data
-	// This means you could have multiple sampler objects
-	// for the same texture with different settings
-	// Similar to the samplers available with OpenGL 3.3
 	VkSampler mySampler;
 
 	VkSamplerCreateInfo samplerCreateInfo = {
@@ -582,7 +609,7 @@ int main(int argc, char* argv[])
 	assert(result == VK_SUCCESS);
 
 	VkPipeline myPipeline;
-	boolResult = demo02CreatePipeline(myDevice, myRenderPass, myPipelineLayout, VERTEX_SHADER_FILENAME, FRAGMENT_SHADER_FILENAME, VERTEX_INPUT_BINDING, myPipeline);
+	boolResult = demo05CreatePipeline(myDevice, myRenderPass, myPipelineLayout, VERTEX_SHADER_FILENAME, FRAGMENT_SHADER_FILENAME, VERTEX_INPUT_BINDING, myPipeline);
 	assert(boolResult);
 
 
@@ -590,7 +617,7 @@ int main(int argc, char* argv[])
 	 * Generation and submission of the initialization commands' command buffer.
 	 */
 	// We fill the initialization command buffer with... the initialization commands.
-	boolResult = demo02FillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector, myDepthImage);
+	boolResult = demo02FillInitializationCommandBuffer(myCmdBufferInitialization, myDepthImage);
 	assert(boolResult);
 
 	// We now submit the command buffer to the queue we created before, and we wait

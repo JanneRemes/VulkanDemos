@@ -235,7 +235,7 @@ int main(int argc, char* argv[])
 	 */
 
 	// We fill the initialization command buffer with... the initialization commands.
-	boolResult = demo02FillInitializationCommandBuffer(myCmdBufferInitialization, mySwapchainImagesVector, myDepthImage);
+	boolResult = demo02FillInitializationCommandBuffer(myCmdBufferInitialization, myDepthImage);
 	assert(boolResult);
 
 	// We now submit the command buffer to the queue we created before, and we wait

@@ -39,12 +39,12 @@ bool demo01FillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, cons
 	};
 
 	/*
-	 * Transition the swapchain image from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	 * to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+	 * Transition the swapchain image to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	 * we don't care what it was before so we set the old layout to VK_IMAGE_LAYOUT_UNDEFINED.
 	 */
-	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	imageMemoryBarrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	imageMemoryBarrier.srcAccessMask = 0;
 	imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
 	vkCmdPipelineBarrier(theCommandBuffer,
