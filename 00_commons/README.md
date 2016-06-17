@@ -62,3 +62,7 @@ File and function list:
 - 10_submitimagebarrier.h
 
 	- `submitImageBarrier`: Appends a CmdPipelineBarrier with an Image Barrier operation to a command buffer.
+
+- 11_loadimagefromfile.h
+
+	- `loadImageFromFile`: Load an RGBA image from a specified path.

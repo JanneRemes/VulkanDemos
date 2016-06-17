@@ -15,6 +15,7 @@
 #include "../00_commons/08_createAndAllocateImage.h"
 #include "../00_commons/09_createAndAllocateBuffer.h"
 #include "../00_commons/10_submitimagebarrier.h"
+#include "../00_commons/11_loadimagefromfile.h"
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -118,74 +119,7 @@ struct PixelData {    // data for single pixel.
 
 static constexpr int TEXTURE_WIDTH = 256;
 static constexpr int TEXTURE_HEIGHT = 256;
-
-
-/*
- * Load/Generate a texture
- */
-void generateTexture(PixelData *buffer, const int width, const int height)
-{
-	PixelData *ptr = buffer;
-
-	for(int y = 0; y < height; y++)
-	for(int x = 0; x < width; x++)
-	{
-		PixelData pixel;
-		/*pixel.r = uint8_t( (((x&16)==0)^((y&16)==0))*255 );
-		pixel.g = uint8_t( (((x&2)==0)^((y&2)==0))*255 );
-		pixel.b = uint8_t( (((x&128)==0)^((y&128)==0))*255 );*/
-
-		/*auto v = hsv2rgb({float(y)/height, float(x)/width, 1.0f});
-		pixel = {uint8_t(v.r*255), uint8_t(v.g*255), uint8_t(v.g*255), 255u};*/
-
-		pixel.r = uint8_t( x > y )*200u;
-		pixel.g = uint8_t( x <= y )*200u;
-		pixel.b = uint8_t( 0 );
-
-		if(((x&16)==0)^((y&16)==0)) {
-			pixel.r = pixel.r/2;
-			pixel.g = pixel.g/2;
-			pixel.b = pixel.b/2;
-		}
-
-		*(ptr++) = pixel;
-	}
-
-	for(int x = 50; x < 205; x++)
-	{
-		int y = 70;
-		PixelData pixel;
-		pixel.r = uint8_t( 0 );
-		pixel.g = uint8_t( 0 );
-		pixel.b = uint8_t( 0 );
-		buffer[y*width + x] = pixel;
-	}
-
-	for(int y = 50; y < 205; y++)
-	{
-		int x = 128;
-		PixelData pixel;
-		pixel.r = uint8_t( 0 );
-		pixel.g = uint8_t( 0 );
-		pixel.b = uint8_t( 0 );
-		buffer[y*width + x] = pixel;
-	}
-
-	for(int o = 0; o < 70; o++)
-	{
-		int x = 128+o;
-		int y = 90+o;
-		PixelData pixel;
-		pixel.r = uint8_t( 0 );
-		pixel.g = uint8_t( 0 );
-		pixel.b = uint8_t( 0 );
-		buffer[y*width + x] = pixel;
-	}
-}
-
-
-
-
+static constexpr const char* TEXTURE_FILE_NAME = "texture.png";
 
 
 /**
@@ -346,9 +280,9 @@ int main(int argc, char* argv[])
 	VkDeviceMemory myTextureImageMemory;
 
 	{
-		PixelData textureData[TEXTURE_HEIGHT][TEXTURE_WIDTH];
-
-		generateTexture(&textureData[0][0], TEXTURE_WIDTH, TEXTURE_HEIGHT);
+		SDL_Surface* image = loadImageFromFile(TEXTURE_FILE_NAME);
+		assert(image != nullptr && image->pixels != nullptr);
+		assert(image->w == TEXTURE_WIDTH && image->h == TEXTURE_HEIGHT);
 
 		/*
 		 * Allocate memory for staging buffer, map it, and fill it with our texture's data.
@@ -369,7 +303,7 @@ int main(int argc, char* argv[])
 		result = vkMapMemory(myDevice, myStagingBufferMemory, 0, VK_WHOLE_SIZE, 0, &mappedBuffer);
 		assert(result == VK_SUCCESS);
 
-		memcpy(mappedBuffer, textureData, TEXTURE_WIDTH*TEXTURE_HEIGHT*sizeof(PixelData));
+		memcpy(mappedBuffer, reinterpret_cast<unsigned char *>(image->pixels), TEXTURE_WIDTH*TEXTURE_HEIGHT*sizeof(PixelData));
 
 		vkUnmapMemory(myDevice, myStagingBufferMemory);
 
