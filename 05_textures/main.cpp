@@ -677,6 +677,11 @@ int main(int argc, char* argv[])
 	long frameAvgTimeSumSquare = 0;
 	constexpr long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
 
+	bool clicked = false;
+	glm::ivec2 clickedMousePos;
+	glm::vec2 cubeRotation{-30.0f, 0.0f};
+	glm::vec2 cubeRotationAtClick;
+
 	// The main event/render loop.
 	while(!quit)
 	{
@@ -689,18 +694,38 @@ int main(int argc, char* argv[])
 			if(sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
 				quit = true;
 			}
+
+			if(sdlEvent.type == SDL_MOUSEBUTTONDOWN && sdlEvent.button.button == SDL_BUTTON_LEFT) {
+				clicked = true;
+				clickedMousePos.x = sdlEvent.button.x;
+				clickedMousePos.y = sdlEvent.button.y;
+				cubeRotationAtClick = cubeRotation;
+			}
+
+			if(sdlEvent.type == SDL_MOUSEBUTTONUP && sdlEvent.button.button == SDL_BUTTON_LEFT) {
+				clicked = false;
+			}
+
+			if(sdlEvent.type == SDL_MOUSEMOTION && clicked)
+			{
+				cubeRotation.y = cubeRotationAtClick.y + 200.0f*(sdlEvent.motion.x - clickedMousePos.x)/windowWidth;
+				cubeRotation.x = cubeRotationAtClick.x - 200.0f*float(sdlEvent.motion.y - clickedMousePos.y)/windowHeight;
+			}
 		}
+
 
 		// Rendering code
 		if(!quit)
 		{
+			float animatedRotation = glm::mod(pushConstData.animationTime / 60.0f, 360.0f);
+
 			// Calculate projection*model matrix.
 			glm::mat4 projMatrix = glm::perspective(glm::radians(60.0f), (float)windowWidth / (float)windowHeight, 0.001f, 256.0f);
 			glm::mat4 modelMatrix{};
 
 			modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 0.0f, -2.5f));
-			modelMatrix = glm::rotate(modelMatrix, glm::radians(-30.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-			modelMatrix = glm::rotate(modelMatrix, glm::radians(glm::mod(pushConstData.animationTime/60.0f, 360.0f)), glm::vec3(0.0f, 1.0f, 0.0f));
+			modelMatrix = glm::rotate(modelMatrix, glm::radians(cubeRotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
+			modelMatrix = glm::rotate(modelMatrix, glm::radians(cubeRotation.y+animatedRotation), glm::vec3(0.0f, 1.0f, 0.0f));
 
 			pushConstData.projMatrix = projMatrix * modelMatrix;
 
