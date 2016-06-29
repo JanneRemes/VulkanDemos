@@ -73,7 +73,7 @@ bool demo01FillPresentCommandBuffer(const VkCommandBuffer theCommandBuffer, cons
 	 */
 	imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+	imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 	imageMemoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
 
 	vkCmdPipelineBarrier(theCommandBuffer,
