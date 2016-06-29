@@ -66,3 +66,4 @@ File and function list:
 - 11_loadimagefromfile.h
 
 	- `loadImageFromFile`: Load an RGBA image from a specified path.
+
