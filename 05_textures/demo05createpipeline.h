@@ -9,7 +9,7 @@
 
 
 /*
- * This struct represents the format of the vertice's data in memory.
+ * This struct represents the format of the vertices' data in memory.
  */
 struct Demo05Vertex {
 	float x, y, z;
@@ -51,7 +51,8 @@ bool demo05CreatePipeline(const VkDevice theDevice,
 	/*
 	 * Specify the pipeline's shader stages.
 	 */
-	VkPipelineShaderStageCreateInfo shaderStageCreateInfo[2] = {
+	VkPipelineShaderStageCreateInfo shaderStageCreateInfo[2] =
+	{
 		[0] = {    // Vertex shader
 			.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 			.pNext  = nullptr,
@@ -75,7 +76,6 @@ bool demo05CreatePipeline(const VkDevice theDevice,
 
 	/*
 	 * Specify parameters for vertex input.
-	 *
 	 */
 	VkVertexInputBindingDescription vertexInputBindingDescription = {
 		.binding = vertexInputBinding,
@@ -85,7 +85,8 @@ bool demo05CreatePipeline(const VkDevice theDevice,
 
 	// Two Attribute Descriptions: a vector of 3 float elements for vertex position (x,y,z),
 	// and a vector of 2 float elements for texture UV coordinate.
-	VkVertexInputAttributeDescription vertexInputAttributeDescription[2] = {
+	VkVertexInputAttributeDescription vertexInputAttributeDescription[2] =
+	{
 		[0] = {
 			.location = 0,
 			.binding = vertexInputBinding,

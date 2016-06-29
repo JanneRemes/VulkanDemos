@@ -109,7 +109,7 @@ static const Demo05Vertex vertices[NUM_DEMO_VERTICES] =
 
 
 // Texture stuff
-struct PixelData {    // data for single pixel.
+struct PixelData {    // data for a single pixel.
 	uint8_t r = 0;
 	uint8_t g = 0;
 	uint8_t b = 0;
