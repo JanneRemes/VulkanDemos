@@ -11,17 +11,15 @@ layout(push_constant) uniform PushConstants
 
 // Inputs
 layout(location = 0) in vec3 position;
-layout(location = 1) in vec3 colorIn;
+layout(location = 1) in vec2 inUV;
 
 // Outputs
 layout(location = 0) out vec2 outUV;
-layout(location = 1) out vec3 outColor;
 
 
 void main()
 {
-	outUV = colorIn.xy;
-	outColor = vec3(colorIn.z, 1.0, 1.0);
+	outUV = inUV;
 
-	gl_Position = (pushConstants.projMatrix * vec4(position.xyz, 1.0));
+	gl_Position = (pushConstants.projMatrix * vec4(position, 1.0));
 }
