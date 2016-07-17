@@ -1,5 +1,5 @@
-#ifndef DEMO05CREATEPIPELINE_H
-#define DEMO05CREATEPIPELINE_H
+#ifndef DEMO06CREATEPIPELINE_H
+#define DEMO06CREATEPIPELINE_H
 
 #include "../00_commons/00_utils.h"
 
@@ -11,9 +11,8 @@
 /*
  * This struct represents the format of the vertices' data in memory.
  */
-struct Demo05Vertex {
-	float x, y, z;
-	float u, v;
+struct Demo06Vertex {
+	float x, y;
 };
 
 
@@ -23,7 +22,7 @@ struct Demo05Vertex {
  *
  * For an explanation of the various fields and structs, refer to Demo 02.
  */
-bool demo05CreatePipeline(const VkDevice theDevice,
+bool demo06CreatePipeline(const VkDevice theDevice,
                           const VkRenderPass theRenderPass,
                           const VkPipelineLayout thePipelineLayout,
                           const std::string & vertexShaderFilename,
@@ -79,26 +78,19 @@ bool demo05CreatePipeline(const VkDevice theDevice,
 	 */
 	VkVertexInputBindingDescription vertexInputBindingDescription = {
 		.binding = vertexInputBinding,
-		.stride = sizeof(Demo05Vertex),
+		.stride = sizeof(Demo06Vertex),
 		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
 	};
 
-	// Two Attribute Descriptions: a vector of 3 float elements for vertex position (x,y,z),
-	// and a vector of 2 float elements for texture UV coordinate.
-	constexpr int inputAttributeDescCount = 2;
+	// Attribute Description
+	constexpr int inputAttributeDescCount = 1;
 	VkVertexInputAttributeDescription vertexInputAttributeDescription[inputAttributeDescCount] =
 	{
 		[0] = {
 			.location = 0,
 			.binding = vertexInputBinding,
-			.format = VK_FORMAT_R32G32B32_SFLOAT,
-			.offset = offsetof(Demo05Vertex, x),
-		},
-		[1] = {
-			.location = 1,
-			.binding = vertexInputBinding,
 			.format = VK_FORMAT_R32G32_SFLOAT,
-			.offset = offsetof(Demo05Vertex, u),
+			.offset = offsetof(Demo06Vertex, x),
 		},
 	};
 

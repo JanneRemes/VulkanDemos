@@ -1,5 +1,7 @@
-#ifndef DEMO02FILLRENDERINGCOMMANDBUFFER_H
-#define DEMO02FILLRENDERINGCOMMANDBUFFER_H
+#ifndef DEMO06FILLRENDERINGCOMMANDBUFFER_H
+#define DEMO06FILLRENDERINGCOMMANDBUFFER_H
+
+#include "pushconstdata.h"
 
 #include <vulkan/vulkan.h>
 #include <vector>
@@ -8,14 +10,18 @@
 /**
  * Fill the specified command buffer with the present commands for this demo.
  */
-bool demo02FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
+bool demo06FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
                                       const VkFramebuffer theCurrentFramebuffer,
                                       const VkRenderPass theRenderPass,
                                       const VkPipeline thePipeline,
+                                      const VkPipelineLayout thePipelineLayout,
                                       const VkBuffer theVertexBuffer,
                                       const uint32_t vertexInputBinding,
+                                      const uint32_t numberOfVertices,
+                                      const VkDescriptorSet theDescriptorSet,
                                       const int width,
-                                      const int height
+                                      const int height,
+                                      const PushConstData & pushConstData
                                       )
 {
 	VkResult result;
@@ -33,18 +39,13 @@ bool demo02FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	result = vkBeginCommandBuffer(theCommandBuffer, &commandBufferBeginInfo);
 	assert(result == VK_SUCCESS);
 
-	// We don't need to add a pipeline barrier to transition the swapchain's image
-	// from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-	// because we already told the driver to do the layout change for us
-	// when we created the render pass. That's a very convenient feature!
-
 	/*
 	 * Record the state setup and drawing commands.
 	 */
 	// Begin the renderpass (passing also the clear values for all the attachments).
 	const VkClearValue clearValues[2] = {
-		[0] = {.color.float32 = {0.3f, 0.5f, 0.9f, 1.0f}}, // Clear color for the color attachment at index 0
-		[1] = {.depthStencil  = {1.0f, 0}},                // Clear value for the depth buffer at attachment index 1
+		[0] = {.color.float32 = {0.15f, 0.15f, 0.15f, 1.0f}}, // Clear color for the color attachment at index 0
+		[1] = {.depthStencil  = {1.0f, 0}},                   // Clear value for the depth buffer at attachment index 1
 	};
 
 	const VkRenderPassBeginInfo renderPassBeginInfo = {
@@ -52,8 +53,8 @@ bool demo02FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 		.pNext = nullptr,
 		.renderPass = theRenderPass,
 		.framebuffer = theCurrentFramebuffer,
-		.renderArea.offset = {0, 0},
-		.renderArea.extent = {(uint32_t)width, (uint32_t)height},
+	    .renderArea.offset = {0, 0},
+	    .renderArea.extent = {(uint32_t)width, (uint32_t)height},
 		.clearValueCount = 2,
 		.pClearValues = clearValues,
 	};
@@ -89,15 +90,35 @@ bool demo02FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	VkDeviceSize buffersOffsets = 0;
 	vkCmdBindVertexBuffers(theCommandBuffer, vertexInputBinding, 1, &theVertexBuffer, &buffersOffsets);
 
+	/*
+	 * Bind the descriptor set.
+	 */
+	vkCmdBindDescriptorSets(
+		theCommandBuffer,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		thePipelineLayout,
+	    0,                 // firstSet
+		1,                 // descriptorSetCount
+		&theDescriptorSet, // pDescriptorSets
+		0,                 // dynamicOffsetCount
+		nullptr            // pDynamicOffsets
+	);
+
+	// Send the Push Constants.
+	vkCmdPushConstants(
+		theCommandBuffer,
+		thePipelineLayout,
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,  // shader stages that will use the push constants
+		0,                      // push constant offset (as defined in the push constants range in the pipeline layout)
+		sizeof(PushConstData),  // length of push constants data
+		&pushConstData          // pointer to push constants data
+	);
+
 	// Send the draw command, that will begin all the rendering magic
-	vkCmdDraw(theCommandBuffer, 3, 1, 0, 0);
+	vkCmdDraw(theCommandBuffer, numberOfVertices, 1, 0, 0);
 
 	// End the render pass commands.
 	vkCmdEndRenderPass(theCommandBuffer);
-
-	// Again, we don't need to add a pipeline barrier to transition the swapchain's image
-	// from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	// because we already told the driver to do it in the render pass.
 
 	/*
 	 * End recording of the command buffer

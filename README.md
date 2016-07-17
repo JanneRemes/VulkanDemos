@@ -36,3 +36,7 @@ Demo list:
 
   The classic rotating cube: this demo shows how to upload textures to the GPU and use them in rendering.
 
+- **06 - Compute**
+
+  This demo shows how to use Vulkan's compute shaders, and how to synchronize the compute queue with the graphics queue to display the computed results.
+

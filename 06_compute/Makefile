@@ -21,11 +21,11 @@ force:
 shaders: vertex.spirv fragment.spirv
 	@true
 
-vertex.spirv: textures.vert
-	glslangValidator -V -o vertex.spirv textures.vert
+vertex.spirv: compute.vert
+	glslangValidator -V -o vertex.spirv compute.vert
 
-fragment.spirv: textures.frag
-	glslangValidator -V -o fragment.spirv textures.frag
+fragment.spirv: compute.frag
+	glslangValidator -V -o fragment.spirv compute.frag
 
 $(OUTFILE): force
 	$(CXX) $(CPPFLAGS) $(SOURCES) -o $(OUTFILE) $(LIBS)
