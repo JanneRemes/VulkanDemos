@@ -12,8 +12,8 @@ layout(push_constant) uniform PushConstants
 // Combined Image Sampler Binding
 
 layout (local_size_x = 16, local_size_y = 16) in;
-layout (set = 0, binding = 0, r8ui) uniform readonly uimage2D previousState;
-layout (set = 0, binding = 1, r8ui) uniform writeonly uimage2D nextState;
+layout (set = 0, binding = 0, r8ui) uniform restrict readonly uimage2D previousState;
+layout (set = 0, binding = 1, r8ui) uniform restrict writeonly uimage2D nextState;
 
 
 
@@ -21,7 +21,22 @@ layout (set = 0, binding = 1, r8ui) uniform writeonly uimage2D nextState;
 
 void main()
 {
-	//uint state = imageLoad(previousState, ivec2(gl_GlobalInvocationID.x + i, gl_GlobalInvocationID.y + j)).x;
-	uint state = imageLoad(previousState, ivec2(gl_GlobalInvocationID.xy)).x;
-	imageStore(nextState, ivec2(gl_GlobalInvocationID.xy), ivec4(state!=0 ? 0 : 1));
+	int countAlive = 0;
+	uint currentCell;
+	ivec2 off;
+
+	for(off.x = -1; off.x <= 1; off.x++)
+	for(off.y = -1; off.y <= 1; off.y++)
+	{
+		uint state = imageLoad(previousState, ivec2(gl_GlobalInvocationID.xy + off)).x;
+
+		if(off == ivec2(0,0))
+			currentCell = state;
+		else if(state != 0)
+			countAlive++;
+	}
+
+	uint newState = ((countAlive == 2 && currentCell != 0) || countAlive == 3) ? 1 : 0;
+
+	imageStore(nextState, ivec2(gl_GlobalInvocationID.xy), ivec4(newState));
 }

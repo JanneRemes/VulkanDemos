@@ -31,7 +31,7 @@ void main()
 	uint cellValue = imageLoad(arenaState, cellPos).x;
 
 	if( (cellPos.x % 2) == (cellPos.y % 2) )
-		outFragmentColor = vec4(0.65, 1.0, 0.65, 1.0) * (cellValue!=0 ? 1.0 : 0.15);
+		outFragmentColor = vec4(0.7, 1.0, 0.7, 1.0) * (cellValue==0 ? 1.0 : 0.10);
 	else
-		outFragmentColor = vec4(1.0, 0.65, 0.65, 1.0) * (cellValue!=0 ? 1.0 : 0.15);
+		outFragmentColor = vec4(1.0, 0.7, 0.7, 1.0) * (cellValue==0 ? 1.0 : 0.10);
 }

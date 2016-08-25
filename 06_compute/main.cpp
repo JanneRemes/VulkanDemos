@@ -58,6 +58,9 @@ static constexpr int VERTEX_INPUT_BINDING = 0;
 
 static constexpr int NUM_COMPUTE_STORAGE_IMAGES = 4;
 
+static constexpr int FRAMES_PER_COMPUTE = 5;	// How many frames to render for every compute dispatch.
+
+
 // Vertex data to draw.
 static constexpr int NUM_DEMO_VERTICES = 3;
 static const Demo06Vertex vertices[NUM_DEMO_VERTICES] =
@@ -69,8 +72,8 @@ static const Demo06Vertex vertices[NUM_DEMO_VERTICES] =
 };
 
 // Arena for Conway's Game of Life simulation
-static constexpr int ARENA_WIDTH = 64;
-static constexpr int ARENA_HEIGHT = 64;
+static constexpr int ARENA_WIDTH = 128;
+static constexpr int ARENA_HEIGHT = 128;
 uint8_t arenaInitialization[ARENA_WIDTH*ARENA_HEIGHT];
 
 
@@ -758,8 +761,6 @@ int main(int argc, char* argv[])
 	 */
 	SDL_Event sdlEvent;
 	bool quit = false, quit2 = false;
-
-	constexpr long FRAMES_PER_COMPUTE = 30;	// How many frames to render for every compute dispatch.
 
 	PushConstData pushConstData;
 	pushConstData.windowSize = {windowWidth, windowHeight};
