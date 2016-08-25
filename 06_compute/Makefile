@@ -3,7 +3,7 @@ OUTFILE=test
 SOURCES=main.cpp
 
 CXX=clang++
-CPPFLAGS=$(shell sdl2-config --cflags) -O2 -std=c++14 -Wall
+CPPFLAGS=$(shell sdl2-config --cflags) -std=c++14 -Wall -O0 -g
 LIBS=$(shell sdl2-config --libs) -lSDL2_image -lvulkan -lX11-xcb
 
 .PHONY: all clean force shaders
@@ -18,7 +18,7 @@ clean:
 force:
 	@true
 
-shaders: vertex.spirv fragment.spirv
+shaders: vertex.spirv fragment.spirv compute.spirv
 	@true
 
 vertex.spirv: compute.vert
@@ -26,6 +26,9 @@ vertex.spirv: compute.vert
 
 fragment.spirv: compute.frag
 	glslangValidator -V -o fragment.spirv compute.frag
+
+compute.spirv: compute.comp
+	glslangValidator -V -o compute.spirv compute.comp
 
 $(OUTFILE): force
 	$(CXX) $(CPPFLAGS) $(SOURCES) -o $(OUTFILE) $(LIBS)

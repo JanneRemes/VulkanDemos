@@ -18,7 +18,7 @@ struct Demo06Vertex {
 
 
 /**
- * Create the VkPipeline for Demo 05.
+ * Create the VkPipeline for Demo 06.
  *
  * For an explanation of the various fields and structs, refer to Demo 02.
  */
@@ -266,14 +266,14 @@ bool demo06CreatePipeline(const VkDevice theDevice,
 		.basePipelineIndex = -1,              //  to create derivative pipelines -- not used in this demo.
 	};
 
-	VkPipeline myPipeline;
-	result = vkCreateGraphicsPipelines(theDevice, VK_NULL_HANDLE, 1, &graphicsPipelineCreateInfo, nullptr, &myPipeline);
+	VkPipeline myGraphicsPipeline;
+	result = vkCreateGraphicsPipelines(theDevice, VK_NULL_HANDLE, 1, &graphicsPipelineCreateInfo, nullptr, &myGraphicsPipeline);
 	assert(result == VK_SUCCESS);
 
 	vkDestroyShaderModule(theDevice, vertexShaderModule, nullptr);
 	vkDestroyShaderModule(theDevice, fragmentShaderModule, nullptr);
 
-	outPipeline = myPipeline;
+	outPipeline = myGraphicsPipeline;
 	return true;
 }
 

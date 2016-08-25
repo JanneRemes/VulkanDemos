@@ -108,7 +108,7 @@ bool demo06FillRenderingCommandBuffer(const VkCommandBuffer theCommandBuffer,
 	vkCmdPushConstants(
 		theCommandBuffer,
 		thePipelineLayout,
-		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,  // shader stages that will use the push constants
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,  // shader stages that will use the push constants
 		0,                      // push constant offset (as defined in the push constants range in the pipeline layout)
 		sizeof(PushConstData),  // length of push constants data
 		&pushConstData          // pointer to push constants data

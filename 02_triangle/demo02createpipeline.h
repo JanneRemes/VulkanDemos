@@ -315,8 +315,8 @@ bool demo02CreatePipeline(const VkDevice theDevice,
 		.basePipelineIndex = -1,              //  to create derivative pipelines -- not used in this demo.
 	};
 
-	VkPipeline myPipeline;
-	result = vkCreateGraphicsPipelines(theDevice, VK_NULL_HANDLE, 1, &graphicsPipelineCreateInfo, nullptr, &myPipeline);
+	VkPipeline myGraphicsPipeline;
+	result = vkCreateGraphicsPipelines(theDevice, VK_NULL_HANDLE, 1, &graphicsPipelineCreateInfo, nullptr, &myGraphicsPipeline);
 	assert(result == VK_SUCCESS);
 
 	vkDestroyShaderModule(theDevice, vertexShaderModule, nullptr);

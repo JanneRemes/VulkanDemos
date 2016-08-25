@@ -1,16 +1,19 @@
-#version 400
+#version 430
 #extension GL_ARB_separate_shader_objects : enable
 #extension GL_ARB_shading_language_420pack : enable
 
-// Push Constants block
-/*layout(push_constant) uniform PushConstants
-{
-	mat4 projMatrix;
-	float animationTime;
-} pushConstants;*/
+const int BORDER_SIZE_PX = 2;
+const vec3 BORDER_COLOR = vec3(0.1, 0.1, 0.1);
 
-// Combined Image Sampler Binding
-layout(set = 0, binding = 0) uniform sampler2D textureSampler;	// this sampler is attached to binding point 0 inside descriptor set 0
+
+// Push Constants block
+layout(push_constant) uniform PushConstants
+{
+	ivec2 windowSize;
+	ivec2 arenaSize;
+} pushConstants;
+
+layout (set = 0, binding = 0, r8ui) uniform readonly uimage2D arenaState;
 
 // Inputs
 layout(location = 0) in vec2 inUV;
@@ -21,6 +24,14 @@ layout(location = 0) out vec4 outFragmentColor;
 
 void main()
 {
-	//outFragmentColor = texture(textureSampler, inUV);
-	outFragmentColor = vec4(inUV, 0.0, 1.0);
+	ivec2 cellPos = ivec2(inUV * pushConstants.arenaSize);
+	ivec2 pixelInCell = pushConstants.windowSize % (pushConstants.windowSize / pushConstants.arenaSize);
+
+
+	uint cellValue = imageLoad(arenaState, cellPos).x;
+
+	if( (cellPos.x % 2) == (cellPos.y % 2) )
+		outFragmentColor = vec4(0.65, 1.0, 0.65, 1.0) * (cellValue!=0 ? 1.0 : 0.15);
+	else
+		outFragmentColor = vec4(1.0, 0.65, 0.65, 1.0) * (cellValue!=0 ? 1.0 : 0.15);
 }

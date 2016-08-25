@@ -220,8 +220,8 @@ int main(int argc, char* argv[])
 
 
 	// Create Pipeline.
-	VkPipeline myPipeline;
-	boolResult = demo02CreatePipeline(myDevice, myRenderPass, myPipelineLayout, VERTEX_SHADER_FILENAME, FRAGMENT_SHADER_FILENAME, VERTEX_INPUT_BINDING, myPipeline);
+	VkPipeline myGraphicsPipeline;
+	boolResult = demo02CreatePipeline(myDevice, myRenderPass, myPipelineLayout, VERTEX_SHADER_FILENAME, FRAGMENT_SHADER_FILENAME, VERTEX_INPUT_BINDING, myGraphicsPipeline);
 	assert(boolResult);
 
 
@@ -312,7 +312,7 @@ int main(int argc, char* argv[])
 		{
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !demo03RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myVertexBuffer, VERTEX_INPUT_BINDING, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight);
+			quit = !demo03RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myGraphicsPipeline, myVertexBuffer, VERTEX_INPUT_BINDING, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -364,7 +364,7 @@ int main(int argc, char* argv[])
 	/*
 	 * For more informations on the following commands, refer to Demo 02.
 	 */
-	vkDestroyPipeline(myDevice, myPipeline, nullptr);
+	vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
 	vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
 	vkDestroyBuffer(myDevice, myVertexBuffer, nullptr);
 	vkFreeMemory(myDevice, myVertexBufferMemory, nullptr);

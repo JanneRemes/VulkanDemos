@@ -304,6 +304,15 @@ int main(int argc, char* argv[])
 
 		memcpy(mappedBuffer, reinterpret_cast<unsigned char *>(image->pixels), TEXTURE_WIDTH*TEXTURE_HEIGHT*sizeof(PixelData));
 
+		VkMappedMemoryRange mappedMemoryRange = {
+			.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+			.pNext = nullptr,
+			.memory = myStagingBufferMemory,
+			.offset = 0,
+			.size = VK_WHOLE_SIZE,
+		};
+
+		vkFlushMappedMemoryRanges(myDevice, 1, &mappedMemoryRange);
 		vkUnmapMemory(myDevice, myStagingBufferMemory);
 
 
@@ -608,8 +617,8 @@ int main(int argc, char* argv[])
 	result = vkCreatePipelineLayout(myDevice, &pipelineLayoutCreateInfo, nullptr, &myPipelineLayout);
 	assert(result == VK_SUCCESS);
 
-	VkPipeline myPipeline;
-	boolResult = demo05CreatePipeline(myDevice, myRenderPass, myPipelineLayout, VERTEX_SHADER_FILENAME, FRAGMENT_SHADER_FILENAME, VERTEX_INPUT_BINDING, myPipeline);
+	VkPipeline myGraphicsPipeline;
+	boolResult = demo05CreatePipeline(myDevice, myRenderPass, myPipelineLayout, VERTEX_SHADER_FILENAME, FRAGMENT_SHADER_FILENAME, VERTEX_INPUT_BINDING, myGraphicsPipeline);
 	assert(boolResult);
 
 
@@ -731,7 +740,7 @@ int main(int argc, char* argv[])
 
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !demo05RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, NUM_DEMO_VERTICES, myDescriptorSet, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight, pushConstData);
+			quit = !demo05RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myGraphicsPipeline, myPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, NUM_DEMO_VERTICES, myDescriptorSet, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight, pushConstData);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -798,7 +807,7 @@ int main(int argc, char* argv[])
 	vkFreeMemory(myDevice, myTextureImageMemory, nullptr);
 
 	// For more informations on the following commands, refer to Demo 02.
-	vkDestroyPipeline(myDevice, myPipeline, nullptr);
+	vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
 	vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
 	vkDestroyBuffer(myDevice, myVertexBuffer, nullptr);
 	vkFreeMemory(myDevice, myVertexBufferMemory, nullptr);

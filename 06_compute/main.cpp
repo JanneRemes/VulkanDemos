@@ -24,6 +24,8 @@
 
 #include "demo06rendersingleframe.h"
 #include "demo06createpipeline.h"
+#include "demo06createcomputepipeline.h"
+#include "demo06createvkdeviceandvkqueues.h"
 #include "pushconstdata.h"
 
 // CreateRenderPass are the same as Demo 02
@@ -49,32 +51,27 @@ static const int FRAME_LAG = 2;
 
 static const std::string VERTEX_SHADER_FILENAME   = "vertex.spirv";
 static const std::string FRAGMENT_SHADER_FILENAME = "fragment.spirv";
+static const std::string COMPUTE_SHADER_FILENAME = "compute.spirv";
 
 static constexpr int VERTEX_INPUT_BINDING = 0;
 
+static constexpr int NUM_COMPUTE_STORAGE_IMAGES = 4;
 
 // Vertex data to draw.
 static constexpr int NUM_DEMO_VERTICES = 3;
 static const Demo06Vertex vertices[NUM_DEMO_VERTICES] =
 {
-	//      position             color
+	//   position
 	{ -1.0f, -1.0f },
 	{  3.0f, -1.0f },
     { -1.0f,  3.0f },
 };
 
+// Arena for Conway's Game of Life simulation
+static constexpr int ARENA_WIDTH = 128;
+static constexpr int ARENA_HEIGHT = 128;
+uint8_t arenaInitialization[ARENA_WIDTH*ARENA_HEIGHT];
 
-// Texture stuff
-struct PixelData {    // data for a single pixel.
-	uint8_t r = 0;
-	uint8_t g = 0;
-	uint8_t b = 0;
-	uint8_t a = 255;
-};
-
-static constexpr int TEXTURE_WIDTH = 256;
-static constexpr int TEXTURE_HEIGHT = 256;
-static constexpr const char* TEXTURE_FILE_NAME = "texture.png";
 
 
 /**
@@ -132,7 +129,9 @@ int main(int argc, char* argv[])
 	VkDevice myDevice;
 	VkQueue myQueue;
 	uint32_t myQueueFamilyIndex;
-	boolResult = vkdemos::createVkDeviceAndVkQueue(myPhysicalDevice, mySurface, layersNamesToEnable, myDevice, myQueue, myQueueFamilyIndex);
+	VkQueue myComputeQueue;
+	uint32_t myComputeQueueFamilyIndex;
+	boolResult = demo06createVkDeviceAndVkQueues(myPhysicalDevice, mySurface, layersNamesToEnable, myDevice, myQueue, myQueueFamilyIndex, myComputeQueue, myComputeQueueFamilyIndex);
 	assert(boolResult);
 
 	VkSwapchainKHR mySwapchain;
@@ -164,18 +163,18 @@ int main(int argc, char* argv[])
 	VkDeviceMemory myDepthMemory;
 
 	boolResult = vkdemos::createAndAllocateImage(
-	                 myDevice,
-	                 myMemoryProperties,
-	                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-	                 0,
-	                 myDepthBufferFormat,
-	                 windowWidth,
-	                 windowHeight,
-	                 myDepthImage,
-	                 myDepthMemory,
-	                 &myDepthImageView,
-	                 VK_IMAGE_ASPECT_DEPTH_BIT
-	             );
+		myDevice,
+		myMemoryProperties,
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		0,
+		myDepthBufferFormat,
+		windowWidth,
+		windowHeight,
+		myDepthImage,
+		myDepthMemory,
+		&myDepthImageView,
+		VK_IMAGE_ASPECT_DEPTH_BIT
+	);
 	assert(boolResult);
 
 	// Create the renderpass.
@@ -200,14 +199,14 @@ int main(int argc, char* argv[])
 	VkDeviceMemory myVertexBufferMemory;
 
 	boolResult = vkdemos::createAndAllocateBuffer(
-	                 myDevice,
-	                 myMemoryProperties,
-	                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-	                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-	                 vertexBufferSize,
-	                 myVertexBuffer,
-	                 myVertexBufferMemory
-	             );
+		myDevice,
+		myMemoryProperties,
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+		vertexBufferSize,
+		myVertexBuffer,
+		myVertexBufferMemory
+	);
 	assert(boolResult);
 
 	// Map vertex buffer and insert data
@@ -224,68 +223,158 @@ int main(int argc, char* argv[])
 
 
 	/*
+	 * Create the arena buffers.
 	 *
-	 * Create the texture.
+	 * We need an area of memory for the compute shader to
+	 * compute the next state in the simulation; we do this by
+	 * creating various Storage Images (spec. 13.1.1), so that
+	 * we have at least one to use as the previous state and
+	 * one as the next state.
 	 *
+	 * To optimize memory allocation, we allocate a single
+	 * memory area from the GPU, and then we create the various
+	 * VkImage with different offsets in this area.
 	 */
-	VkBuffer myStagingBuffer;
-	VkDeviceMemory myStagingBufferMemory;
-	VkImage myTextureImage;
-	VkImageView myTextureImageView;
-	VkDeviceMemory myTextureImageMemory;
+	VkImage myArenaStorageImages[NUM_COMPUTE_STORAGE_IMAGES];
+	VkImageView myArenaStorageImagesViews[NUM_COMPUTE_STORAGE_IMAGES];
+	VkDeviceMemory myArenaStorageImagesMemory;
+	VkBuffer myArenaStagingBuffer;
+	VkDeviceMemory myArenaStagingBufferMemory;
 
 	{
-		SDL_Surface* image = loadImageFromFile(TEXTURE_FILE_NAME);
-		assert(image != nullptr && image->pixels != nullptr);
-		assert(image->w == TEXTURE_WIDTH && image->h == TEXTURE_HEIGHT);
+		std::random_device rd;
+	    std::mt19937 mt(rd());
+	    std::uniform_int_distribution<int> dist(0, 1);
+
+		for(int i = 0; i < ARENA_WIDTH*ARENA_HEIGHT; i++)
+			arenaInitialization[i] = dist(mt);
 
 		/*
-		 * Allocate memory for staging buffer, map it, and fill it with our texture's data.
+		 * Create the VkImages
+		 */
+		uint32_t queueFamilyIndices[2] = {myQueueFamilyIndex, myComputeQueueFamilyIndex};
+
+		const VkImageCreateInfo imageCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.imageType = VK_IMAGE_TYPE_2D,
+			.format = VK_FORMAT_R8_UINT,
+			.extent = {(uint32_t)ARENA_WIDTH, (uint32_t)ARENA_HEIGHT, 1},
+			.mipLevels = 1,
+			.arrayLayers = 1,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.tiling = VK_IMAGE_TILING_OPTIMAL,
+			.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+			.sharingMode = VK_SHARING_MODE_CONCURRENT,
+			.queueFamilyIndexCount = 2,
+			.pQueueFamilyIndices = queueFamilyIndices,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		};
+
+		for(int i = 0; i < NUM_COMPUTE_STORAGE_IMAGES; i++) {
+			result = vkCreateImage(myDevice, &imageCreateInfo, nullptr, &myArenaStorageImages[i]);
+			assert(result == VK_SUCCESS);
+		}
+
+
+
+		// Get the memory requirements for our images.
+		VkMemoryRequirements memoryRequirements;
+		vkGetImageMemoryRequirements(myDevice, myArenaStorageImages[0], &memoryRequirements);
+
+		// Find an appropriate memory type with all the requirements for our image.
+		int memoryTypeIndex = vkdemos::utils::findMemoryTypeWithProperties(myMemoryProperties, memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		if(memoryTypeIndex < 0) {
+			std::cout << "!!! ERROR: Can't find a memory type to hold the image." << std::endl;
+			return false;
+		}
+
+		// Allocate memory for the image.
+		const VkMemoryAllocateInfo memoryAllocateInfo = {
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.pNext = nullptr,
+			.allocationSize = memoryRequirements.size * NUM_COMPUTE_STORAGE_IMAGES,
+			.memoryTypeIndex = (uint32_t)memoryTypeIndex,
+		};
+
+		result = vkAllocateMemory(myDevice, &memoryAllocateInfo, nullptr, &myArenaStorageImagesMemory);
+		assert(result == VK_SUCCESS);
+
+
+		/*
+		 * Bind the allocated memory to the images
+		 */
+		for(int i = 0; i < NUM_COMPUTE_STORAGE_IMAGES; i++)
+		{
+			// Bind memory
+			result = vkBindImageMemory(myDevice, myArenaStorageImages[i], myArenaStorageImagesMemory, memoryRequirements.size*i);
+			assert(result == VK_SUCCESS);
+
+			// Create view
+			const VkImageViewCreateInfo imageViewCreateInfo = {
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.pNext = nullptr,
+				.flags = 0,
+				.image = myArenaStorageImages[i],
+				.format = VK_FORMAT_R8_UINT,
+				.subresourceRange = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1
+				},
+				.components = {
+					.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.a = VK_COMPONENT_SWIZZLE_IDENTITY
+				},
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			};
+
+			result = vkCreateImageView(myDevice, &imageViewCreateInfo, nullptr, &myArenaStorageImagesViews[i]);
+			assert(result == VK_SUCCESS);
+		}
+
+
+		/*
+		 * As for Demo 05, we use a staging buffer to copy the initialization
+		 * data for the first iteration of the simulation.
 		 */
 		boolResult = vkdemos::createAndAllocateBuffer(
-		                 myDevice,
-		                 myMemoryProperties,
-		                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, // Use this buffer as a source for transfers
-		                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,                                 // It must be host-visible since we'll map it and copy data to it.
-		                 TEXTURE_WIDTH*TEXTURE_HEIGHT*sizeof(PixelData),
-		                 myStagingBuffer,
-		                 myStagingBufferMemory
-		             );
+			myDevice,
+			myMemoryProperties,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+			ARENA_WIDTH*ARENA_HEIGHT*sizeof(uint8_t),
+			myArenaStagingBuffer,
+			myArenaStagingBufferMemory
+		);
 		assert(boolResult);
 
 		// Map the buffer and fill it with data.
 		void *mappedBuffer;
-		result = vkMapMemory(myDevice, myStagingBufferMemory, 0, VK_WHOLE_SIZE, 0, &mappedBuffer);
+		result = vkMapMemory(myDevice, myArenaStagingBufferMemory, 0, VK_WHOLE_SIZE, 0, &mappedBuffer);
 		assert(result == VK_SUCCESS);
 
-		memcpy(mappedBuffer, reinterpret_cast<unsigned char *>(image->pixels), TEXTURE_WIDTH*TEXTURE_HEIGHT*sizeof(PixelData));
+		memcpy(mappedBuffer, reinterpret_cast<const unsigned char *>(arenaInitialization), ARENA_WIDTH*ARENA_HEIGHT*sizeof(uint8_t));
 
-		vkUnmapMemory(myDevice, myStagingBufferMemory);
+		VkMappedMemoryRange mappedMemoryRange = {
+			.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+			.pNext = nullptr,
+			.memory = myArenaStagingBufferMemory,
+			.offset = 0,
+			.size = VK_WHOLE_SIZE,
+		};
 
-
-
-		/*
-		 * Allocate memory for our texture's Image
-		 */
-		boolResult = vkdemos::createAndAllocateImage(
-		                 myDevice,
-		                 myMemoryProperties,
-		                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,   // The image will be used as a sampling source and a transfer destination
-		                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,    // The Image will reside in device-local memory.
-		                 VK_FORMAT_R8G8B8A8_UNORM,
-		                 TEXTURE_WIDTH,  // width
-		                 TEXTURE_HEIGHT,  // height
-		                 myTextureImage,
-		                 myTextureImageMemory,
-		                 &myTextureImageView,
-		                 VK_IMAGE_ASPECT_COLOR_BIT
-		             );
-		assert(boolResult);
+		vkFlushMappedMemoryRanges(myDevice, 1, &mappedMemoryRange);
+		vkUnmapMemory(myDevice, myArenaStagingBufferMemory);
 
 
 		/*
-		 * Submit a copy command to the GPU to copy data from the staging buffer to the GPU's memory,
-		 * with the appropriate format conversion.
+		 * Submit a buffer->image copy command to the GPU.
 		 */
 		VkCommandBuffer textureCopyCmdBuffer;
 		boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, textureCopyCmdBuffer);
@@ -304,12 +393,11 @@ int main(int argc, char* argv[])
 
 
 		/*
-		 * Transition the Image to an optimal layout for use as a copy command's destination;
-		 * also set a memory barrier on the buffer such that the transfer of data is guaranteed
-		 * to be completed before using it as a source for the copy.
-		 * We can do both operations with a single Pipeline Barrier.
+		 * Transition image to an optimal layout for transfer
 		 */
 		{
+			std::vector<VkImageMemoryBarrier> imageMemoryBarrierVector;
+
 			VkImageMemoryBarrier imageMemoryBarrier = {
 				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 				.pNext = nullptr,
@@ -320,9 +408,21 @@ int main(int argc, char* argv[])
 				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.subresourceRange =  {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-				.image = myTextureImage,
+				.image = myArenaStorageImages[0],  // Initialize only the first image
 			};
 
+			imageMemoryBarrierVector.push_back(imageMemoryBarrier);
+
+			// While I'm at it, transition all the other storage images from
+			// VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_GENERAL.
+
+			for(int i = 1; i < NUM_COMPUTE_STORAGE_IMAGES; i++) {
+				imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+				imageMemoryBarrier.image = myArenaStorageImages[i];
+				imageMemoryBarrierVector.push_back(imageMemoryBarrier);
+			}
+
+			// Barrier for the buffer, to synchronize with the host upload
 			VkBufferMemoryBarrier bufferMemoryBarrier = {
 				.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
 				.pNext = nullptr,
@@ -330,7 +430,7 @@ int main(int argc, char* argv[])
 				.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
 				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-				.buffer = myStagingBuffer,
+				.buffer = myArenaStagingBuffer,
 				.offset = 0,
 				.size = VK_WHOLE_SIZE,
 			};
@@ -343,8 +443,8 @@ int main(int argc, char* argv[])
 				nullptr,                           // pMemoryBarriers
 				1,                                 // bufferMemoryBarrierCount
 				&bufferMemoryBarrier,              // pBufferMemoryBarriers
-				1,                                 // imageMemoryBarrierCount
-				&imageMemoryBarrier                // pImageMemoryBarriers
+				imageMemoryBarrierVector.size(),   // imageMemoryBarrierCount
+				imageMemoryBarrierVector.data()    // pImageMemoryBarriers
 			);
 		}
 
@@ -361,13 +461,13 @@ int main(int argc, char* argv[])
 				.layerCount = 1,
 		    },
 		    .imageOffset = {0, 0, 0},
-		    .imageExtent = {.width = TEXTURE_WIDTH, .height = TEXTURE_HEIGHT, .depth = 0},
+		    .imageExtent = {.width = ARENA_WIDTH, .height = ARENA_HEIGHT, .depth = 0},
 		};
 
 		vkCmdCopyBufferToImage(
 			textureCopyCmdBuffer,
-			myStagingBuffer,
-			myTextureImage,
+			myArenaStagingBuffer,
+			myArenaStorageImages[0],
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1,
 			&bufferImageCopy
@@ -376,11 +476,11 @@ int main(int argc, char* argv[])
 		// Transition the Image to an optimal layout for use as a shader's read-only sampling source.
 		vkdemos::submitImageBarrier(
 			textureCopyCmdBuffer,
-			myTextureImage,
+			myArenaStorageImages[0],
 			VK_ACCESS_TRANSFER_WRITE_BIT,
 			VK_ACCESS_SHADER_READ_BIT,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_IMAGE_LAYOUT_GENERAL,
 		    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
 		);
 
@@ -406,83 +506,30 @@ int main(int argc, char* argv[])
 
 
 	/*
-	 * Create the sampler.
-	 *
-	 * A sampler object contains all the parameters used to describe how
-	 * the textures are sampled by the shaders.
-	 * In OpenGL, sampler information was contained inside the texture object,
-	 * but in Vulkan the two are separate entities, so you can sample many images
-	 * with the same sampler, and you can use many samplers to sample the same image.
+	 * Specify Push Constant parameters.
 	 */
-	VkSampler mySampler;
+	static_assert(sizeof(PushConstData) % 4 == 0, "PushConstData size is not a multiple of 4 bytes.");
 
-	VkSamplerCreateInfo samplerCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.magFilter = VK_FILTER_LINEAR,
-		.minFilter = VK_FILTER_LINEAR,
-		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-		.mipLodBias = 0.0f,
-		.minLod = 0.0f,
-		.maxLod = 0.0f,
-		.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		.anisotropyEnable = VK_TRUE,   // Anisotropic filter
-		.maxAnisotropy = 8,
-		.compareEnable = VK_FALSE,
-		.compareOp = VK_COMPARE_OP_NEVER,
-		.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
-		.unnormalizedCoordinates = VK_FALSE,
+	const VkPushConstantRange pushConstantRange = {
+		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+		.offset = 0,                   // We start at offset 0,
+		.size = sizeof(PushConstData)  // both "offset" and "size" are specified in bytes, and must be multiple of 4.
 	};
-
-	result = vkCreateSampler(myDevice, &samplerCreateInfo, nullptr, &mySampler);
-	assert(result == VK_SUCCESS);
-
-
-	/*
-	 * Create the descriptor set layout.
-	 *
-	 * Note on field pImmutableSamplers: if you don't need to change your samplers
-	 * at draw time, you can set the samplers now and you won't need to set them
-	 * at draw time. Refer to section 13.2.1 of Vulkan's specification for more informations.
-	 */
-	VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {
-		.binding = 0,
-		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-		.pImmutableSamplers = nullptr,
-	};
-
-	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.bindingCount = 1,
-		.pBindings = &descriptorSetLayoutBinding,
-	};
-
-	VkDescriptorSetLayout myDescriptorSetLayout;
-	result = vkCreateDescriptorSetLayout(myDevice, &descriptorSetLayoutCreateInfo, nullptr, &myDescriptorSetLayout);
-	assert(result == VK_SUCCESS);
-
 
 
 	/*
 	 * Create descriptor pool.
 	 */
 	VkDescriptorPoolSize descriptorPoolSize = {
-	    .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-	    .descriptorCount = 1,
+	    .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+	    .descriptorCount = NUM_COMPUTE_STORAGE_IMAGES * 2 + FRAME_LAG,
 	};
 
 	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {
 	    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 	    .pNext = nullptr,
 	    .flags = 0,
-	    .maxSets = 1,
+	    .maxSets = NUM_COMPUTE_STORAGE_IMAGES + FRAME_LAG,
 	    .poolSizeCount = 1,
 	    .pPoolSizes = &descriptorPoolSize,
 	};
@@ -492,81 +539,150 @@ int main(int argc, char* argv[])
 	assert(result == VK_SUCCESS);
 
 
+	/*
+	 * Create the Graphics descriptor set and pipeline.
+	 */
+	VkDescriptorSetLayout myGraphicsDescriptorSetLayout;
+	VkPipelineLayout myGraphicsPipelineLayout;
+	VkPipeline myGraphicsPipeline;
+
+	{
+		VkDescriptorSetLayoutBinding graphicsDescriptorSetLayoutBinding =
+		{
+			.binding = 0,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+			.descriptorCount = 1,
+			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			.pImmutableSamplers = nullptr,
+		};
+
+		VkDescriptorSetLayoutCreateInfo graphicsDescriptorSetLayoutCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.bindingCount = 1,
+			.pBindings = &graphicsDescriptorSetLayoutBinding,
+		};
+
+		result = vkCreateDescriptorSetLayout(myDevice, &graphicsDescriptorSetLayoutCreateInfo, nullptr, &myGraphicsDescriptorSetLayout);
+		assert(result == VK_SUCCESS);
+
+		// Create pipeline
+		const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.setLayoutCount = 1,
+			.pSetLayouts = &myGraphicsDescriptorSetLayout,
+			.pushConstantRangeCount = 1,
+			.pPushConstantRanges = &pushConstantRange,
+		};
+
+		result = vkCreatePipelineLayout(myDevice, &pipelineLayoutCreateInfo, nullptr, &myGraphicsPipelineLayout);
+		assert(result == VK_SUCCESS);
+
+		boolResult = demo06CreatePipeline(myDevice, myRenderPass, myGraphicsPipelineLayout, VERTEX_SHADER_FILENAME, FRAGMENT_SHADER_FILENAME, VERTEX_INPUT_BINDING, myGraphicsPipeline);
+		assert(boolResult);
+	}
 
 
 	/*
-	 * Create descriptor set.
+	 * Create the Compute descriptor set and pipeline.
 	 */
-	VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {
-	    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-	    .pNext = nullptr,
-	    .descriptorPool = myDescriptorPool,
-	    .descriptorSetCount = 1,
-	    .pSetLayouts = &myDescriptorSetLayout,
-	};
+	VkDescriptorSetLayout myComputeDescriptorSetLayout;
+	VkPipelineLayout myComputePipelineLayout;
+	VkPipeline myComputePipeline;
 
-	VkDescriptorSet myDescriptorSet;
-	result = vkAllocateDescriptorSets(myDevice, &descriptorSetAllocateInfo, &myDescriptorSet);
-	assert(result == VK_SUCCESS);
+	{
+		VkDescriptorSetLayoutBinding computeDescriptorSetLayoutBindings[2] =
+		{
+			// "previousState"
+			[0] = {
+				.binding = 0,
+				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+				.pImmutableSamplers = nullptr,
+			},
+			// "nextState"
+			[1] = {
+				.binding = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+				.pImmutableSamplers = nullptr,
+			},
+		};
+
+		VkDescriptorSetLayoutCreateInfo computeDescriptorSetLayoutCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.bindingCount = 2,
+			.pBindings = computeDescriptorSetLayoutBindings,
+		};
+
+		result = vkCreateDescriptorSetLayout(myDevice, &computeDescriptorSetLayoutCreateInfo, nullptr, &myComputeDescriptorSetLayout);
+		assert(result == VK_SUCCESS);
+
+		// Create pipeline
+		const VkPipelineLayoutCreateInfo computePipelineLayoutCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.setLayoutCount = 1,
+			.pSetLayouts = &myComputeDescriptorSetLayout,
+			.pushConstantRangeCount = 1,
+			.pPushConstantRanges = &pushConstantRange,
+		};
+
+		result = vkCreatePipelineLayout(myDevice, &computePipelineLayoutCreateInfo, nullptr, &myComputePipelineLayout);
+		assert(result == VK_SUCCESS);
+
+		boolResult = demo06CreateComputePipeline(myDevice, myComputePipelineLayout, COMPUTE_SHADER_FILENAME, myComputePipeline);
+		assert(boolResult);
+	}
 
 
 	/*
-	 * Update the descriptor set.
+	 * Allocate Descriptor Sets for Graphics.
 	 */
-	VkDescriptorImageInfo descriptorImageInfo = {
-	    .sampler = mySampler,
-	    .imageView = myTextureImageView,
-	    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	};
+	VkDescriptorSet myGraphicsDescriptorSets[FRAME_LAG];
 
-	VkWriteDescriptorSet writeDescriptorSet = {
-	    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-	    .pNext = nullptr,
-	    .dstSet = myDescriptorSet,
-	    .dstBinding = 0,
-	    .dstArrayElement = 0,
-	    .descriptorCount = 1,
-	    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-	    .pImageInfo = &descriptorImageInfo,
-	    .pBufferInfo = nullptr,
-	    .pTexelBufferView = nullptr,
-	};
+	for(int i = 0; i < FRAME_LAG; i++)
+	{
+		VkDescriptorSetAllocateInfo graphicsDescriptorSetAllocateInfo = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.pNext = nullptr,
+			.descriptorPool = myDescriptorPool,
+			.descriptorSetCount = 1,
+			.pSetLayouts = &myGraphicsDescriptorSetLayout,
+		};
 
-	vkUpdateDescriptorSets(myDevice, 1, &writeDescriptorSet, 0, nullptr);
-
+		result = vkAllocateDescriptorSets(myDevice, &graphicsDescriptorSetAllocateInfo, &myGraphicsDescriptorSets[i]);
+		assert(result == VK_SUCCESS);
+	}
 
 
 	/*
-	 * Specify Push Constant parameters.
+	 * Allocate Descriptor Sets for Compute.
 	 */
-	static_assert(sizeof(PushConstData) % 4 == 0, "PushConstData size is not a multiple of 4 bytes.");
+	VkDescriptorSet myComputeDescriptorSets[NUM_COMPUTE_STORAGE_IMAGES];
 
-	const VkPushConstantRange pushConstantRange = {
-		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-		.offset = 0,                   // We start at offset 0,
-		.size = sizeof(PushConstData)  // both "offset" and "size" are specified in bytes, and must be multiple of 4.
-	};
+	for(int i = 0; i < NUM_COMPUTE_STORAGE_IMAGES; i++)
+	{
+		VkDescriptorSetAllocateInfo computeDescriptorSetAllocateInfo = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.pNext = nullptr,
+			.descriptorPool = myDescriptorPool,
+			.descriptorSetCount = 1,
+			.pSetLayouts = &myComputeDescriptorSetLayout,
+		};
 
-	/*
-	 * Create the pipeline.
-	 */
-	const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.setLayoutCount = 1,
-		.pSetLayouts = &myDescriptorSetLayout,
-		.pushConstantRangeCount = 1,
-		.pPushConstantRanges = &pushConstantRange,
-	};
+		result = vkAllocateDescriptorSets(myDevice, &computeDescriptorSetAllocateInfo, &myComputeDescriptorSets[i]);
+		assert(result == VK_SUCCESS);
+	}
 
-	VkPipelineLayout myPipelineLayout;
-	result = vkCreatePipelineLayout(myDevice, &pipelineLayoutCreateInfo, nullptr, &myPipelineLayout);
-	assert(result == VK_SUCCESS);
-
-	VkPipeline myPipeline;
-	boolResult = demo06CreatePipeline(myDevice, myRenderPass, myPipelineLayout, VERTEX_SHADER_FILENAME, FRAGMENT_SHADER_FILENAME, VERTEX_INPUT_BINDING, myPipeline);
-	assert(boolResult);
 
 
 	/*
@@ -617,6 +733,10 @@ int main(int argc, char* argv[])
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
 
+
+	std::cout << "--- Rendering start ---" << std::endl;
+
+
 	/*
 	 * Event loop
 	 */
@@ -624,6 +744,8 @@ int main(int argc, char* argv[])
 	bool quit = false;
 
 	PushConstData pushConstData;
+	pushConstData.windowSize = {windowWidth, windowHeight};
+	pushConstData.arenaSize = {ARENA_WIDTH, ARENA_HEIGHT};
 
 	// Just some variables for frame statistics
 	long frameNumber = 0;
@@ -633,10 +755,7 @@ int main(int argc, char* argv[])
 	long frameAvgTimeSumSquare = 0;
 	constexpr long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
 
-	bool clicked = false;
-	glm::ivec2 clickedMousePos;
-	glm::vec2 cubeRotation{-30.0f, 0.0f};
-	glm::vec2 cubeRotationAtClick;
+	int mostRecentlyUpdatedArenaImageIndex = 0;
 
 	// The main event/render loop.
 	while(!quit)
@@ -651,7 +770,7 @@ int main(int argc, char* argv[])
 				quit = true;
 			}
 
-			if(sdlEvent.type == SDL_MOUSEBUTTONDOWN && sdlEvent.button.button == SDL_BUTTON_LEFT) {
+			/*if(sdlEvent.type == SDL_MOUSEBUTTONDOWN && sdlEvent.button.button == SDL_BUTTON_LEFT) {
 				clicked = true;
 				clickedMousePos.x = sdlEvent.button.x;
 				clickedMousePos.y = sdlEvent.button.y;
@@ -666,28 +785,53 @@ int main(int argc, char* argv[])
 			{
 				cubeRotation.y = cubeRotationAtClick.y + 200.0f*(sdlEvent.motion.x - clickedMousePos.x)/windowWidth;
 				cubeRotation.x = cubeRotationAtClick.x - 200.0f*float(sdlEvent.motion.y - clickedMousePos.y)/windowHeight;
-			}
+			}*/
 		}
 
 
 		// Rendering code
 		if(!quit)
 		{
-			float animatedRotation = glm::mod(pushConstData.animationTime / 60.0f, 360.0f);
-
-			// Calculate projection*model matrix.
-			glm::mat4 projMatrix = glm::perspective(glm::radians(60.0f), (float)windowWidth / (float)windowHeight, 0.001f, 256.0f);
-			glm::mat4 modelMatrix{};
-
-			modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 0.0f, -2.5f));
-			modelMatrix = glm::rotate(modelMatrix, glm::radians(cubeRotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
-			modelMatrix = glm::rotate(modelMatrix, glm::radians(cubeRotation.y+animatedRotation), glm::vec3(0.0f, 1.0f, 0.0f));
-
-			pushConstData.projMatrix = projMatrix * modelMatrix;
+			PerFrameData & perFrameData = perFrameDataVector[frameNumber % FRAME_LAG];
+			const VkDescriptorSet & activeGraphicsDescriptorSet = myGraphicsDescriptorSets[frameNumber % FRAME_LAG];
+			const VkDescriptorSet & activeComputeDescriptorSet = myComputeDescriptorSets[(mostRecentlyUpdatedArenaImageIndex+1) % NUM_COMPUTE_STORAGE_IMAGES];
 
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
-			quit = !demo06RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myPipeline, myPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, NUM_DEMO_VERTICES, myDescriptorSet, perFrameDataVector[frameNumber % FRAME_LAG], windowWidth, windowHeight, pushConstData);
+
+			// Wait for the frame's fence
+			if(perFrameData.fenceInitialized) {
+				vkWaitForFences(myDevice, 1, &perFrameData.presentFence, VK_TRUE, UINT64_MAX);
+				vkResetFences(myDevice, 1, &perFrameData.presentFence);
+			}
+
+			// Update the graphics descriptor set: tell the fragment shader which storage image to use
+			// to draw the arena grid.
+			{
+				VkDescriptorImageInfo descriptorImageInfo = {
+					.sampler = VK_NULL_HANDLE,		// ignored for VK_DESCRIPTOR_TYPE_STORAGE_IMAGE (Spec. 13.2.4)
+					.imageView = myArenaStorageImagesViews[mostRecentlyUpdatedArenaImageIndex],
+					.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+				};
+
+				VkWriteDescriptorSet writeDescriptorSet = {
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.pNext = nullptr,
+					.dstSet = activeGraphicsDescriptorSet,
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+					.pImageInfo = &descriptorImageInfo,
+					.pBufferInfo = nullptr,
+					.pTexelBufferView = nullptr,
+				};
+
+				vkUpdateDescriptorSets(myDevice, 1, &writeDescriptorSet, 0, nullptr);
+			}
+
+
+			quit = !demo06RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myGraphicsPipeline, myGraphicsPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, NUM_DEMO_VERTICES, activeGraphicsDescriptorSet, perFrameData, windowWidth, windowHeight, pushConstData);
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -718,9 +862,6 @@ int main(int argc, char* argv[])
 			}
 
 			frameNumber++;
-
-			// Update animation
-			pushConstData.animationTime += elapsedTimeUs / 1000.0f;
 		}
 	}
 
@@ -740,22 +881,26 @@ int main(int argc, char* argv[])
 		vkDestroySemaphore(myDevice, perFrameDataVector[i].renderingCompletedSemaphore, nullptr);
 	}
 
-	// Destroy sampler and descriptor pool/set layout
+	// Destroy descriptor pool/set layout
 	vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
-	vkDestroyDescriptorSetLayout(myDevice, myDescriptorSetLayout, nullptr);
-	vkDestroySampler(myDevice, mySampler, nullptr);
+	vkDestroyDescriptorSetLayout(myDevice, myGraphicsDescriptorSetLayout, nullptr);
+	vkDestroyDescriptorSetLayout(myDevice, myComputeDescriptorSetLayout, nullptr);
 
-	// Free the staging buffer and the texture image.
-	vkFreeMemory(myDevice, myStagingBufferMemory, nullptr);
-	vkDestroyBuffer(myDevice, myStagingBuffer, nullptr);
+	// Free the arena storage images and staging buffer
+	for(int i = 0; i < NUM_COMPUTE_STORAGE_IMAGES; i++) {
+		vkDestroyImageView(myDevice, myArenaStorageImagesViews[i], nullptr);
+		vkDestroyImage(myDevice, myArenaStorageImages[i], nullptr);
+	}
+	vkFreeMemory(myDevice, myArenaStorageImagesMemory, nullptr);
 
-	vkDestroyImageView(myDevice, myTextureImageView, nullptr);
-	vkDestroyImage(myDevice, myTextureImage, nullptr);
-	vkFreeMemory(myDevice, myTextureImageMemory, nullptr);
+	vkDestroyBuffer(myDevice, myArenaStagingBuffer, nullptr);
+	vkFreeMemory(myDevice, myArenaStagingBufferMemory, nullptr);
 
 	// For more informations on the following commands, refer to Demo 02.
-	vkDestroyPipeline(myDevice, myPipeline, nullptr);
-	vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
+	vkDestroyPipeline(myDevice, myComputePipeline, nullptr);
+	vkDestroyPipelineLayout(myDevice, myComputePipelineLayout, nullptr);
+	vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
+	vkDestroyPipelineLayout(myDevice, myGraphicsPipelineLayout, nullptr);
 	vkDestroyBuffer(myDevice, myVertexBuffer, nullptr);
 	vkFreeMemory(myDevice, myVertexBufferMemory, nullptr);
 

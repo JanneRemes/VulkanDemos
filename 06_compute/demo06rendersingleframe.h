@@ -44,15 +44,6 @@ bool demo06RenderSingleFrame(const VkDevice theDevice,
 	VkResult result;
 
 	/*
-	 * Wait on the previous frame's fence so that we don't render frames too fast.
-	 */
-	if(thePerFrameData.fenceInitialized) {
-		vkWaitForFences(theDevice, 1, &thePerFrameData.presentFence, VK_TRUE, UINT64_MAX);
-		vkResetFences(theDevice, 1, &thePerFrameData.presentFence);
-	}
-
-
-	/*
 	 * Acquire the index of the next available swapchain image.
 	 */
 	uint32_t imageIndex = UINT32_MAX;

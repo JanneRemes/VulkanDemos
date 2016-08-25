@@ -18,8 +18,6 @@ layout(location = 0) out vec2 outUV;	// TODO pick better name
 
 void main()
 {
-	outUV = position;
-
-	//gl_Position = (pushConstants.projMatrix * vec4(position, 1.0));
+	outUV = (position + 1.0) / 2.0;
 	gl_Position = vec4(position, 1.0, 1.0);
 }
