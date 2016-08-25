@@ -26,6 +26,7 @@
 #include "demo06createpipeline.h"
 #include "demo06createcomputepipeline.h"
 #include "demo06createvkdeviceandvkqueues.h"
+#include "demo06computesinglestep.h"
 #include "pushconstdata.h"
 
 // CreateRenderPass are the same as Demo 02
@@ -68,8 +69,8 @@ static const Demo06Vertex vertices[NUM_DEMO_VERTICES] =
 };
 
 // Arena for Conway's Game of Life simulation
-static constexpr int ARENA_WIDTH = 128;
-static constexpr int ARENA_HEIGHT = 128;
+static constexpr int ARENA_WIDTH = 64;
+static constexpr int ARENA_HEIGHT = 64;
 uint8_t arenaInitialization[ARENA_WIDTH*ARENA_HEIGHT];
 
 
@@ -709,8 +710,9 @@ int main(int argc, char* argv[])
 	result = vkQueueSubmit(myQueue, 1, &submitInfo, VK_NULL_HANDLE);
 	assert(result == VK_SUCCESS);
 
-	// Per-Frame data.
+	// Per-Frame and per-compute data.
 	PerFrameData perFrameDataVector[FRAME_LAG];
+	PerComputeData perComputeDataVector[NUM_COMPUTE_STORAGE_IMAGES];
 
 	for(int i = 0; i < FRAME_LAG; i++)
 	{
@@ -729,6 +731,20 @@ int main(int argc, char* argv[])
 		perFrameDataVector[i].fenceInitialized = false;
 	}
 
+	for(int i = 0; i < NUM_COMPUTE_STORAGE_IMAGES; i++)
+	{
+		boolResult = vkdemos::allocateCommandBuffer(myDevice, myCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, perComputeDataVector[i].computeCmdBuffer);
+		assert(boolResult);
+
+		result = vkdemos::utils::createFence(myDevice, perComputeDataVector[i].computeFence);
+		assert(result == VK_SUCCESS);
+
+		result = vkdemos::utils::createSemaphore(myDevice, perComputeDataVector[i].computeCompletedSemaphore);
+		assert(result == VK_SUCCESS);
+
+		perComputeDataVector[i].fenceInitialized = false;
+	}
+
 	// Wait for the queue to complete its work.
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
@@ -741,11 +757,17 @@ int main(int argc, char* argv[])
 	 * Event loop
 	 */
 	SDL_Event sdlEvent;
-	bool quit = false;
+	bool quit = false, quit2 = false;
+
+	constexpr long FRAMES_PER_COMPUTE = 30;	// How many frames to render for every compute dispatch.
 
 	PushConstData pushConstData;
 	pushConstData.windowSize = {windowWidth, windowHeight};
 	pushConstData.arenaSize = {ARENA_WIDTH, ARENA_HEIGHT};
+
+	int mostRecentlyUpdatedArenaImageIndex = 0;
+	VkImageView mostRecentlyUpdatedArenaImageView = myArenaStorageImagesViews[0];
+	VkSemaphore computeSemaphoreToWait = VK_NULL_HANDLE;
 
 	// Just some variables for frame statistics
 	long frameNumber = 0;
@@ -755,13 +777,12 @@ int main(int argc, char* argv[])
 	long frameAvgTimeSumSquare = 0;
 	constexpr long FRAMES_PER_STAT = 120;	// How many frames to wait before printing frame time statistics.
 
-	int mostRecentlyUpdatedArenaImageIndex = 0;
 
 	// The main event/render loop.
-	while(!quit)
+	while(!quit && !quit2)
 	{
 		// Process events for this frame
-		while(SDL_PollEvent(&sdlEvent))
+		while(!quit && SDL_PollEvent(&sdlEvent))
 		{
 			if(sdlEvent.type == SDL_QUIT) {
 				quit = true;
@@ -794,11 +815,84 @@ int main(int argc, char* argv[])
 		{
 			PerFrameData & perFrameData = perFrameDataVector[frameNumber % FRAME_LAG];
 			const VkDescriptorSet & activeGraphicsDescriptorSet = myGraphicsDescriptorSets[frameNumber % FRAME_LAG];
-			const VkDescriptorSet & activeComputeDescriptorSet = myComputeDescriptorSets[(mostRecentlyUpdatedArenaImageIndex+1) % NUM_COMPUTE_STORAGE_IMAGES];
 
 			// Render a single frame
 			auto renderStartTime = std::chrono::high_resolution_clock::now();
 
+
+			/*
+			 * Start dispatching the compute job: we run it only every Nth frame,
+			 * so that our simulation is slow enough for us to see.
+			 */
+			computeSemaphoreToWait = VK_NULL_HANDLE;
+			if(frameNumber % FRAMES_PER_COMPUTE == 0)
+			{
+				VkImageView currentlyUpdatedArenaImageView = mostRecentlyUpdatedArenaImageView;
+
+				mostRecentlyUpdatedArenaImageIndex = (mostRecentlyUpdatedArenaImageIndex + 1) % NUM_COMPUTE_STORAGE_IMAGES;
+				mostRecentlyUpdatedArenaImageView = myArenaStorageImagesViews[mostRecentlyUpdatedArenaImageIndex];
+
+				PerComputeData & perComputeData = perComputeDataVector[mostRecentlyUpdatedArenaImageIndex];
+				const VkDescriptorSet & activeComputeDescriptorSet = myComputeDescriptorSets[mostRecentlyUpdatedArenaImageIndex];
+
+
+				// Update compute descriptor set
+				{
+					VkDescriptorImageInfo descriptorImageInfos[2] =
+					{
+					    [0] = {
+							.sampler = VK_NULL_HANDLE,
+							.imageView = currentlyUpdatedArenaImageView,
+							.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+					    },
+					    [1] = {
+							.sampler = VK_NULL_HANDLE,
+							.imageView = mostRecentlyUpdatedArenaImageView,
+							.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+					    },
+					};
+
+					VkWriteDescriptorSet writeDescriptorSets[2] = {
+					    [0] = {
+							.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+							.pNext = nullptr,
+							.dstSet = activeComputeDescriptorSet,
+							.dstBinding = 0,
+							.dstArrayElement = 0,
+							.descriptorCount = 1,
+							.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+							.pImageInfo = &descriptorImageInfos[0],
+							.pBufferInfo = nullptr,
+							.pTexelBufferView = nullptr,
+					    },
+					    [1] = {
+					        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+							.pNext = nullptr,
+							.dstSet = activeComputeDescriptorSet,
+							.dstBinding = 1,
+							.dstArrayElement = 0,
+							.descriptorCount = 1,
+							.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+							.pImageInfo = &descriptorImageInfos[1],
+							.pBufferInfo = nullptr,
+							.pTexelBufferView = nullptr,
+					    }
+					};
+
+					vkUpdateDescriptorSets(myDevice, 2, writeDescriptorSets, 0, nullptr);
+				}
+
+				quit = !demo06ComputeSingleStep(myDevice, myComputeQueue, myComputePipeline, myComputePipelineLayout, activeComputeDescriptorSet, perComputeData, ARENA_WIDTH, ARENA_HEIGHT, pushConstData);
+				if(quit) break;
+
+				computeSemaphoreToWait = perComputeData.computeCompletedSemaphore;
+			}
+
+
+			/*
+			 * Now submit the rendering commands; we pass the compute semaphore's handle
+			 * so that the graphics queue can correctly wait for the results before rendering.
+			 */
 			// Wait for the frame's fence
 			if(perFrameData.fenceInitialized) {
 				vkWaitForFences(myDevice, 1, &perFrameData.presentFence, VK_TRUE, UINT64_MAX);
@@ -810,7 +904,7 @@ int main(int argc, char* argv[])
 			{
 				VkDescriptorImageInfo descriptorImageInfo = {
 					.sampler = VK_NULL_HANDLE,		// ignored for VK_DESCRIPTOR_TYPE_STORAGE_IMAGE (Spec. 13.2.4)
-					.imageView = myArenaStorageImagesViews[mostRecentlyUpdatedArenaImageIndex],
+					.imageView = mostRecentlyUpdatedArenaImageView,
 					.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
 				};
 
@@ -830,8 +924,26 @@ int main(int argc, char* argv[])
 				vkUpdateDescriptorSets(myDevice, 1, &writeDescriptorSet, 0, nullptr);
 			}
 
+			quit = !demo06RenderSingleFrame(
+				myDevice,
+				myQueue,
+				mySwapchain,
+				myFramebuffersVector,
+				myRenderPass,
+				myGraphicsPipeline,
+				myGraphicsPipelineLayout,
+				myVertexBuffer,
+				VERTEX_INPUT_BINDING,
+				NUM_DEMO_VERTICES,
+				activeGraphicsDescriptorSet,
+				computeSemaphoreToWait,
+				perFrameData,
+				windowWidth,
+				windowHeight,
+				pushConstData
+			);
 
-			quit = !demo06RenderSingleFrame(myDevice, myQueue, mySwapchain, myFramebuffersVector, myRenderPass, myGraphicsPipeline, myGraphicsPipelineLayout, myVertexBuffer, VERTEX_INPUT_BINDING, NUM_DEMO_VERTICES, activeGraphicsDescriptorSet, perFrameData, windowWidth, windowHeight, pushConstData);
+
 			auto renderStopTime = std::chrono::high_resolution_clock::now();
 
 			// Compute frame time statistics
@@ -873,12 +985,17 @@ int main(int argc, char* argv[])
 	result = vkQueueWaitIdle(myQueue);
 	assert(result == VK_SUCCESS);
 
-	// Destroy the objects in the perFrameDataVector array.
 	for(int i = 0; i < FRAME_LAG; i++)
 	{
 		vkDestroyFence(myDevice, perFrameDataVector[i].presentFence, nullptr);
 		vkDestroySemaphore(myDevice, perFrameDataVector[i].imageAcquiredSemaphore, nullptr);
 		vkDestroySemaphore(myDevice, perFrameDataVector[i].renderingCompletedSemaphore, nullptr);
+	}
+
+	for(int i = 0; i < NUM_COMPUTE_STORAGE_IMAGES; i++)
+	{
+		vkDestroyFence(myDevice, perComputeDataVector[i].computeFence, nullptr);
+		vkDestroySemaphore(myDevice, perComputeDataVector[i].computeCompletedSemaphore, nullptr);
 	}
 
 	// Destroy descriptor pool/set layout

@@ -35,6 +35,7 @@ bool demo06RenderSingleFrame(const VkDevice theDevice,
                              const uint32_t vertexInputBinding,
                              const uint32_t numberOfVertices,
                              const VkDescriptorSet theDescriptorSet,
+                             const VkSemaphore theComputeSemaphoreToWait,
                              PerFrameData & thePerFrameData,
                              const int width,
                              const int height,
@@ -72,13 +73,17 @@ bool demo06RenderSingleFrame(const VkDevice theDevice,
 	/*
 	 * Submit the present command buffer to the queue.
 	 */
-	VkPipelineStageFlags pipelineStageFlags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	VkPipelineStageFlags pipelineWaitStageFlags[2] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
+	VkSemaphore waitSemaphores[2] = {thePerFrameData.imageAcquiredSemaphore, theComputeSemaphoreToWait};
+
+	const uint32_t waitSemaphoreCount = (theComputeSemaphoreToWait == VK_NULL_HANDLE) ? 1 : 2;
+
 	VkSubmitInfo submitInfo = {
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.pNext = nullptr,
-		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &thePerFrameData.imageAcquiredSemaphore,
-		.pWaitDstStageMask = &pipelineStageFlags,
+		.waitSemaphoreCount = waitSemaphoreCount,
+		.pWaitSemaphores = waitSemaphores,
+		.pWaitDstStageMask = pipelineWaitStageFlags,
 		.commandBufferCount = 1,
 		.pCommandBuffers = &thePerFrameData.presentCmdBuffer,
 		.signalSemaphoreCount = 1,

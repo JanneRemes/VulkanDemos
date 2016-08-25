@@ -21,6 +21,7 @@ layout (set = 0, binding = 1, r8ui) uniform writeonly uimage2D nextState;
 
 void main()
 {
-	//outFragmentColor = texture(textureSampler, inUV);
-	//outFragmentColor = vec4(inUV, 0.0, 1.0);
+	//uint state = imageLoad(previousState, ivec2(gl_GlobalInvocationID.x + i, gl_GlobalInvocationID.y + j)).x;
+	uint state = imageLoad(previousState, ivec2(gl_GlobalInvocationID.xy)).x;
+	imageStore(nextState, ivec2(gl_GlobalInvocationID.xy), ivec4(state!=0 ? 0 : 1));
 }
