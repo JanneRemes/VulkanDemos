@@ -133,12 +133,14 @@ bool demo06createVkDeviceAndVkQueues(const VkPhysicalDevice thePhysicalDevice,
 
 	float queuePriority = 1.0f;
 	qciToFill.queueFamilyIndex = (uint32_t)indexOfGraphicsQueueFamily;
-	qciToFill.queueCount = 1;
+	qciToFill.queueCount = (indexOfGraphicsQueueFamily != indexOfComputeQueueFamily) ? 1 : 2;
 	qciToFill.pQueuePriorities = &queuePriority;
 	deviceQueueCreateInfoVector.push_back(qciToFill);
 
-	qciToFill.queueFamilyIndex = (uint32_t)indexOfComputeQueueFamily;
-	deviceQueueCreateInfoVector.push_back(qciToFill);
+	if(indexOfGraphicsQueueFamily != indexOfComputeQueueFamily) {
+		qciToFill.queueFamilyIndex = (uint32_t)indexOfComputeQueueFamily;
+		deviceQueueCreateInfoVector.push_back(qciToFill);
+	}
 
 	/*
 	 * Physical device features
@@ -183,7 +185,7 @@ bool demo06createVkDeviceAndVkQueues(const VkPhysicalDevice thePhysicalDevice,
 
 	vkGetDeviceQueue(myDevice,
 		(uint32_t)indexOfComputeQueueFamily,
-		0,
+		(indexOfGraphicsQueueFamily != indexOfComputeQueueFamily) ? 0 : 1,
 		&myComputeQueue
 	);
 

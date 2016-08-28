@@ -8,11 +8,8 @@
 #include <cassert>
 
 
-
 /**
  * Create the compute VkPipeline for Demo 06.
- *
- * For an explanation of the various fields and structs, refer to Demo 02.
  */
 bool demo06CreateComputePipeline(const VkDevice theDevice,
                                  const VkPipelineLayout thePipelineLayout,

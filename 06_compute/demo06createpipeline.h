@@ -18,7 +18,7 @@ struct Demo06Vertex {
 
 
 /**
- * Create the VkPipeline for Demo 06.
+ * Create the Graphics VkPipeline for Demo 06.
  *
  * For an explanation of the various fields and structs, refer to Demo 02.
  */

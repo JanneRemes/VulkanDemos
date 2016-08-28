@@ -4,8 +4,6 @@
 #include "pushconstdata.h"
 
 #include <vulkan/vulkan.h>
-//#include <vector>
-//#include <iostream>
 #include <cassert>
 
 
@@ -17,11 +15,14 @@ struct PerComputeData
 	bool fenceInitialized;
 };
 
+
 static constexpr int WORKGROUP_WIDTH = 16;
 static constexpr int WORKGROUP_HEIGHT = 16;
 
-
-
+/**
+ * Sends commands to the GPU to compute a single step of the simulation.
+ * Returns true on success and false on failure.
+ */
 bool demo06ComputeSingleStep(const VkDevice theDevice,
                              const VkQueue theQueue,
                              const VkPipeline thePipeline,

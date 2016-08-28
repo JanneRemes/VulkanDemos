@@ -66,7 +66,20 @@ bool demo06RenderSingleFrame(const VkDevice theDevice,
 	/*
 	 * Fill the present command buffer with... the present commands.
 	 */
-	bool boolResult = demo06FillRenderingCommandBuffer(thePerFrameData.presentCmdBuffer, theFramebuffersVector[imageIndex], theRenderPass, thePipeline, thePipelineLayout, theVertexBuffer, vertexInputBinding, numberOfVertices, theDescriptorSet, width, height, pushConstData);
+	bool boolResult = demo06FillRenderingCommandBuffer(
+		thePerFrameData.presentCmdBuffer,
+		theFramebuffersVector[imageIndex],
+		theRenderPass,
+		thePipeline,
+		thePipelineLayout,
+		theVertexBuffer,
+		vertexInputBinding,
+		numberOfVertices,
+		theDescriptorSet,
+		width,
+		height,
+		pushConstData
+	);
 	assert(boolResult);
 
 

@@ -2,18 +2,11 @@
 #extension GL_ARB_separate_shader_objects : enable
 #extension GL_ARB_shading_language_420pack : enable
 
-// Push Constants block
-/*layout(push_constant) uniform PushConstants
-{
-	mat4 projMatrix;
-	float animationTime;
-} pushConstants;*/
-
 // Inputs
 layout(location = 0) in vec2 position;
 
 // Outputs
-layout(location = 0) out vec2 outUV;	// TODO pick better name
+layout(location = 0) out vec2 outUV;
 
 
 void main()

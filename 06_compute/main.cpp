@@ -72,8 +72,8 @@ static const Demo06Vertex vertices[NUM_DEMO_VERTICES] =
 };
 
 // Arena for Conway's Game of Life simulation
-static constexpr int ARENA_WIDTH = 128;
-static constexpr int ARENA_HEIGHT = 128;
+static constexpr int ARENA_WIDTH = 256;
+static constexpr int ARENA_HEIGHT = 256;
 uint8_t arenaInitialization[ARENA_WIDTH*ARENA_HEIGHT];
 
 
@@ -791,23 +791,6 @@ int main(int argc, char* argv[])
 			if(sdlEvent.type == SDL_KEYDOWN && sdlEvent.key.keysym.sym == SDLK_ESCAPE) {
 				quit = true;
 			}
-
-			/*if(sdlEvent.type == SDL_MOUSEBUTTONDOWN && sdlEvent.button.button == SDL_BUTTON_LEFT) {
-				clicked = true;
-				clickedMousePos.x = sdlEvent.button.x;
-				clickedMousePos.y = sdlEvent.button.y;
-				cubeRotationAtClick = cubeRotation;
-			}
-
-			if(sdlEvent.type == SDL_MOUSEBUTTONUP && sdlEvent.button.button == SDL_BUTTON_LEFT) {
-				clicked = false;
-			}
-
-			if(sdlEvent.type == SDL_MOUSEMOTION && clicked)
-			{
-				cubeRotation.y = cubeRotationAtClick.y + 200.0f*(sdlEvent.motion.x - clickedMousePos.x)/windowWidth;
-				cubeRotation.x = cubeRotationAtClick.x - 200.0f*float(sdlEvent.motion.y - clickedMousePos.y)/windowHeight;
-			}*/
 		}
 
 
