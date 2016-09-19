@@ -13,7 +13,7 @@ all: $(OUTFILE)
 	@true
 
 clean:
-	rm $(OUTFILE)
+	rm -f $(OUTFILE)
 
 force:
 	@true

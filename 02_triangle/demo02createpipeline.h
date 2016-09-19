@@ -322,7 +322,7 @@ bool demo02CreatePipeline(const VkDevice theDevice,
 	vkDestroyShaderModule(theDevice, vertexShaderModule, nullptr);
 	vkDestroyShaderModule(theDevice, fragmentShaderModule, nullptr);
 
-	outPipeline = myPipeline;
+	outPipeline = myGraphicsPipeline;
 	return true;
 }
 

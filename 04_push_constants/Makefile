@@ -13,7 +13,7 @@ all: $(OUTFILE) shaders
 	@true
 
 clean:
-	rm $(OUTFILE) *.spirv
+	rm -f $(OUTFILE) *.spirv
 
 force:
 	@true
