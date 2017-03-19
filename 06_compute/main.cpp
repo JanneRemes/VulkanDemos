@@ -43,6 +43,7 @@
 #include <cassert>
 #include <climits>
 #include <cstddef>
+#include <random>
 
 
 /*
@@ -83,8 +84,8 @@ uint8_t arenaInitialization[ARENA_WIDTH*ARENA_HEIGHT];
  */
 int main(int argc, char* argv[])
 {
-	static int windowWidth = 600;
-	static int windowHeight = 600;
+	static int windowWidth = 512;
+	static int windowHeight = 512;
 	static const char * applicationName = "SdlVulkanDemo_06_compute";
 	static const char * engineName = applicationName;
 
@@ -232,7 +233,7 @@ int main(int argc, char* argv[])
 	 * We need an area of memory for the compute shader to
 	 * compute the next state in the simulation; we do this by
 	 * creating various Storage Images (spec. 13.1.1), so that
-	 * we have at least one to use as the previous state and
+	 * we have at least one to use as the current state and
 	 * one as the next state.
 	 *
 	 * To optimize memory allocation, we allocate a single
@@ -287,12 +288,27 @@ int main(int argc, char* argv[])
 		VkMemoryRequirements memoryRequirements;
 		vkGetImageMemoryRequirements(myDevice, myArenaStorageImages[0], &memoryRequirements);
 
+		// Check if all the images have the same requirements
+		// (This is more to shut the "vkGetImageMemoryRequirements() has not been called on that image" warning than anything)
+		for(int i = 1; i < NUM_COMPUTE_STORAGE_IMAGES; i++)
+		{
+			VkMemoryRequirements vkmr;
+			vkGetImageMemoryRequirements(myDevice, myArenaStorageImages[i], &vkmr);
+
+			assert(
+				memoryRequirements.size == vkmr.size &&
+				memoryRequirements.alignment == vkmr.alignment &&
+				memoryRequirements.memoryTypeBits == vkmr.memoryTypeBits
+			);
+		}
+
 		// Find an appropriate memory type with all the requirements for our image.
 		int memoryTypeIndex = vkdemos::utils::findMemoryTypeWithProperties(myMemoryProperties, memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 		if(memoryTypeIndex < 0) {
 			std::cout << "!!! ERROR: Can't find a memory type to hold the image." << std::endl;
 			return false;
 		}
+
 
 		// Allocate memory for the image.
 		const VkMemoryAllocateInfo memoryAllocateInfo = {
@@ -465,7 +481,7 @@ int main(int argc, char* argv[])
 				.layerCount = 1,
 		    },
 		    .imageOffset = {0, 0, 0},
-		    .imageExtent = {.width = ARENA_WIDTH, .height = ARENA_HEIGHT, .depth = 0},
+		    .imageExtent = {.width = ARENA_WIDTH, .height = ARENA_HEIGHT, .depth = 1},
 		};
 
 		vkCmdCopyBufferToImage(

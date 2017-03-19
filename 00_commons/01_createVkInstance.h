@@ -86,18 +86,18 @@ bool createVkInstance(const std::vector<const char *> & layerNamesToEnable,
 
 		// Log all the layers on the console.
 		std::cout << "--- Found " << layerPropertiesVector.size() << " instance layers:" << std::endl;
-		std::cout << "    |               Name               |   Spec   |   Impl   | Description" << std::endl;
-		std::cout << "    +----------------------------------+----------+----------+------------" << std::endl;
+		std::cout << "    |                   Name                  |   Spec   |   Impl   | Description" << std::endl;
+		std::cout << "    +-----------------------------------------+----------+----------+------------" << std::endl;
 
 		for(const auto & layer : layerPropertiesVector)
 		{
-			std::cout <<  "    | " << std::left  << std::setw(33) << layer.layerName
+			std::cout <<  "    | " << std::left  << std::setw(40) << layer.layerName
 			          <<  "| " << std::right << std::setw(8) << layer.specVersion
 			          << " | " << std::setw(8) << layer.implementationVersion
 			          << " | " << layer.description
 			          << std::endl;
 		}
-		std::cout << "    +----------------------------------+----------+----------+------------\n" << std::endl;
+		std::cout << "    +-----------------------------------------+----------+----------+------------\n" << std::endl;
 	}
 
 

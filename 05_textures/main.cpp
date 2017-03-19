@@ -414,7 +414,7 @@ int main(int argc, char* argv[])
 				.layerCount = 1,
 		    },
 		    .imageOffset = {0, 0, 0},
-		    .imageExtent = {.width = TEXTURE_WIDTH, .height = TEXTURE_HEIGHT, .depth = 0},
+		    .imageExtent = {.width = TEXTURE_WIDTH, .height = TEXTURE_HEIGHT, .depth = 1},
 		};
 
 		vkCmdCopyBufferToImage(

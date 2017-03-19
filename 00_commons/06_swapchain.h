@@ -21,7 +21,8 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
                        const int ownedSwapchainImages,
                        VkSwapchainKHR theOldSwapChain,
                        VkSwapchainKHR & outSwapchain,
-                       VkFormat & outSurfaceFormat
+                       VkFormat & outSurfaceFormat,
+                       const VkImageUsageFlags imageUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
                        )
 {
 	VkResult result;
@@ -146,7 +147,7 @@ bool createVkSwapchain(const VkPhysicalDevice thePhysicalDevice,
 		.imageFormat = surfaceFormat,
 		.imageColorSpace = surfaceColorSpace,
 		.imageExtent = swapchainExtent,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,    // The swapchain images will be used to write color data to them.
+		.imageUsage = imageUsageFlags,
 		.preTransform = surfaceTransformFlagBits,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,  // When compositing to screen, don't use any alpha information present in the image.
 		.imageArrayLayers = 1,

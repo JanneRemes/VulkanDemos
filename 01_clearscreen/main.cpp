@@ -24,6 +24,7 @@
 #include <thread>
 #include <cassert>
 #include <climits>
+#include <cmath>
 
 
 
@@ -94,7 +95,7 @@ int main(int argc, char* argv[])
 	// Create a VkSwapchainKHR
 	VkSwapchainKHR mySwapchain;
 	VkFormat mySurfaceFormat;
-	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, 1, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat);
+	boolResult = vkdemos::createVkSwapchain(myPhysicalDevice, myDevice, mySurface, windowWidth, windowHeight, 1, VK_NULL_HANDLE, mySwapchain, mySurfaceFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 	assert(boolResult);
 
 	// Create the swapchain images and related views.

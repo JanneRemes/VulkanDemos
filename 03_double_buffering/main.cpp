@@ -32,6 +32,7 @@
 #include <cassert>
 #include <climits>
 #include <cstddef>
+#include <cmath>
 
 
 /*
